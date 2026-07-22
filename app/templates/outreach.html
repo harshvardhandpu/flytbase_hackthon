@@ -1,0 +1,900 @@
+{% extends "base.html" %}
+{% set active_nav = "outreach" %}
+
+{% block heading %}Outreach Drafts{% endblock %}
+
+{% block content %}
+<div x-data="outreachApp()" x-init="init()" class="space-y-6">
+  <!-- Skeleton loading -->
+  <div x-show="loading" class="space-y-6">
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <template x-for="i in 3" :key="i">
+        <div class="bg-slate-800 rounded-xl p-4 border border-slate-700/50">
+          <div class="skeleton skeleton-text-sm"></div>
+          <div class="skeleton skeleton-text w-12 mt-2"></div>
+        </div>
+      </template>
+    </div>
+    <template x-for="i in 3" :key="i">
+      <div class="bg-slate-800 rounded-xl border border-slate-700/50 p-5">
+        <div class="skeleton skeleton-text w-1/3"></div>
+        <div class="skeleton skeleton-text w-2/3 mt-2"></div>
+        <div class="skeleton skeleton-text-sm w-1/4 mt-3"></div>
+      </div>
+    </template>
+  </div>
+
+  <template x-if="!loading">
+    <div class="space-y-6">
+      <!-- Stats bar -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="bg-slate-800 rounded-xl p-4 border border-slate-700/50">
+          <span class="text-slate-400 text-xs font-medium">Pending Approval</span>
+          <div class="text-2xl font-semibold text-yellow-400 mt-1" x-text="drafts.filter(d => d.status === 'pending_approval').length">0</div>
+        </div>
+        <div class="bg-slate-800 rounded-xl p-4 border border-slate-700/50">
+          <span class="text-slate-400 text-xs font-medium">Approved</span>
+          <div class="text-2xl font-semibold text-green-400 mt-1" x-text="drafts.filter(d => d.status === 'approved').length">0</div>
+        </div>
+        <div class="bg-slate-800 rounded-xl p-4 border border-slate-700/50">
+          <span class="text-slate-400 text-xs font-medium">Rejected</span>
+          <div class="text-2xl font-semibold text-red-400 mt-1" x-text="drafts.filter(d => d.status === 'rejected').length">0</div>
+        </div>
+      </div>
+
+      <!-- Drafts list -->
+      <template x-if="drafts.length === 0">
+        <div class="bg-slate-800 rounded-xl border border-slate-700/50 p-12 text-center">
+          <p class="text-slate-500 text-sm">No outreach drafts yet. Run a research + outreach flow to generate drafts.</p>
+        </div>
+      </template>
+
+      <div class="space-y-3">
+        <template x-for="draft in drafts" :key="draft.task_id">
+          <div class="bg-slate-800 rounded-xl border border-slate-700/50 p-5 hover:border-slate-600 transition-colors cursor-pointer"
+               @click="openDetail(draft)">
+            <div class="flex items-start justify-between gap-4">
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2 mb-1">
+                  <span class="text-sm font-medium text-slate-200" x-text="draft.company_name || 'Unknown'"></span>
+                  <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium"
+                        :class="{
+                          'bg-yellow-900/30 text-yellow-400 border border-yellow-800': draft.status === 'pending_approval',
+                          'bg-green-900/30 text-green-400 border border-green-800': draft.status === 'approved',
+                          'bg-red-900/30 text-red-400 border border-red-800': draft.status === 'rejected'
+                        }"
+                        x-text="draft.status?.replace('_', ' ')"></span>
+                </div>
+                <p class="text-sm text-slate-400 truncate" x-text="draft.subject || 'No subject'"></p>
+                <p class="text-xs text-slate-500 mt-1" x-text="timeAgo(draft.created_at)"></p>
+              </div>
+              <div class="flex items-center gap-2 flex-shrink-0">
+                <template x-if="draft.status === 'pending_approval'">
+                  <div class="flex gap-2">
+                    <button @click.stop="approveDraft(draft)"
+                            class="px-3 py-1.5 bg-green-500/10 text-green-400 border border-green-500/20 rounded-lg text-xs font-medium hover:bg-green-500/20 transition-colors btn-press">
+                      Approve
+                    </button>
+                    <button @click.stop="rejectDraft(draft)"
+                            class="px-3 py-1.5 bg-red-500/10 text-red-400 border border-red-500/20 rounded-lg text-xs font-medium hover:bg-red-500/20 transition-colors btn-press">
+                      Reject
+                    </button>
+                  </div>
+                </template>
+                <span class="text-slate-500 text-lg">→</span>
+              </div>
+            </div>
+          </div>
+        </template>
+      </div>
+
+      <!-- Detail Modal with Inline Editor -->
+      <div x-show="selectedDraft" class="fixed inset-0 z-50 flex items-center justify-center p-4"
+           @keydown.escape.window="selectedDraft = null"
+           style="display: none;">
+        <div class="absolute inset-0 bg-black/60" @click="selectedDraft = null"></div>
+        <div class="relative bg-slate-800 rounded-xl border border-slate-700 w-full max-w-2xl max-h-[80vh] overflow-y-auto">
+          <div class="sticky top-0 bg-slate-800 border-b border-slate-700/50 px-6 py-4 flex items-center justify-between">
+            <h3 class="text-base font-semibold text-slate-200">Outreach Draft</h3>
+            <div class="flex items-center gap-3">
+              <!-- Edit/Preview toggle -->
+              <template x-if="selectedDraft?.status === 'pending_approval'">
+                <div class="flex items-center gap-2">
+                  <!-- Diff button (only when edits exist) -->
+                  <button x-show="overallDirty"
+                          @click="toggleDiff()"
+                          class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all btn-press"
+                          :class="diffMode
+                            ? 'bg-violet-500/15 text-violet-300 border border-violet-500/30 hover:bg-violet-500/25'
+                            : 'bg-slate-700/30 text-slate-300 border border-slate-600/30 hover:bg-slate-700/50'">
+                    <span x-text="diffMode ? '📄' : '📊'"></span>
+                    <span x-text="diffMode ? 'Preview' : 'Diff'"></span>
+                  </button>
+                  <!-- Edit toggle -->
+                  <button @click="toggleEdit()"
+                          class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all btn-press"
+                          :class="editing
+                            ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 hover:bg-cyan-500/20'
+                            : diffMode
+                              ? 'bg-slate-700/30 text-slate-500 border border-slate-600/30'
+                              : overallDirty
+                                ? 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/20 hover:bg-yellow-500/20'
+                                : 'bg-slate-700/30 text-slate-300 border border-slate-600/30 hover:bg-slate-700/50'">
+                    <span x-show="editing">👁️ Preview</span>
+                    <span x-show="!editing && !diffMode && overallDirty">✏️ Edited</span>
+                    <span x-show="!editing && !diffMode && !overallDirty">✏️ Edit</span>
+                  </button>
+                </div>
+              </template>
+              <button @click="selectedDraft = null" class="text-slate-400 hover:text-slate-200 text-lg">✕</button>
+            </div>
+          </div>
+          <div class="p-6 space-y-6">
+            <!-- Strategy -->
+            <div class="grid grid-cols-2 gap-3">
+              <div class="p-3 bg-slate-700/30 rounded-lg">
+                <span class="text-xs text-slate-500 block">Channel</span>
+                <span class="text-sm text-slate-200 font-medium capitalize" x-text="selectedDraft?.strategy_channel || 'email'"></span>
+              </div>
+              <div class="p-3 bg-slate-700/30 rounded-lg">
+                <span class="text-xs text-slate-500 block">Urgency</span>
+                <span class="text-sm text-slate-200 font-medium" x-text="selectedDraft?.strategy_urgency || '—'"></span>
+              </div>
+            </div>
+
+            <!-- Company Intelligence (editable) -->
+            <template x-if="selectedDraft?.company_intelligence">
+              <section class="space-y-5 border-y border-slate-700/60 py-5">
+                <div class="flex items-center justify-between">
+                  <p class="text-xs font-medium uppercase tracking-wider text-cyan-400">Company Intelligence</p>
+                  <template x-if="editing">
+                    <span class="text-xs text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded-full border border-cyan-500/20">Editing</span>
+                  </template>
+                  <template x-if="diffMode">
+                    <span class="text-xs text-violet-400 bg-violet-500/10 px-2 py-0.5 rounded-full border border-violet-500/20">Diff View</span>
+                  </template>
+                </div>
+                <h4 class="mt-1 text-base font-semibold text-slate-100">Why contact this company now</h4>
+
+                <!-- Company Situation Summary: Diff -->
+                <template x-if="diffMode">
+                  <div>
+                    <label class="text-xs text-slate-500 block mb-1">Company Situation Summary</label>
+                    <div class="bg-slate-900/60 rounded-lg p-3 border border-slate-700/60 leading-relaxed text-sm whitespace-pre-wrap">
+                      <template x-for="(word, idx) in cachedIntelDiff.companySituationSummary" :key="'cs-' + idx">
+                        <span :class="{
+                          'bg-green-900/30 text-green-300 rounded-sm px-0.5': word.type === 'added',
+                          'bg-red-900/30 text-red-300 line-through rounded-sm px-0.5': word.type === 'removed',
+                          'text-slate-300': word.type === 'unchanged'
+                        }" x-text="word.text"></span>
+                      </template>
+                    </div>
+                  </div>
+                </template>
+
+                <!-- Company Situation Summary: Preview -->
+                <template x-if="!editing && !diffMode">
+                  <p class="mt-2 rounded-lg bg-slate-700/20 p-3 text-sm leading-relaxed text-slate-300" x-text="selectedDraft.company_intelligence.company_situation_summary"></p>
+                </template>
+
+                <!-- Company Situation Summary: Edit -->
+                <template x-if="editing">
+                  <div>
+                    <label for="edit-company-situation" class="text-xs text-slate-500 block mb-1">Company Situation Summary</label>
+                    <textarea id="edit-company-situation" x-model="editCompanySituationSummary"
+                              class="w-full bg-slate-700/50 border border-slate-600 rounded-lg px-4 py-3 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/20 transition-colors resize-y"
+                              rows="4"
+                              maxlength="2000"></textarea>
+                    <div class="flex justify-between mt-1 px-1">
+                      <span class="text-[10px] text-slate-600" x-show="editCompanySituationSummary !== originalCompanySituationSummary">✏️ Modified</span>
+                      <span class="text-[10px] ml-auto text-slate-600"><span x-text="editCompanySituationSummary.length"></span>/2000</span>
+                    </div>
+                  </div>
+                </template>
+
+                <!-- Growth and expansion signals (read-only) -->
+                <div class="grid gap-3 md:grid-cols-2">
+                  <div class="rounded-lg bg-slate-700/20 p-3">
+                    <p class="text-xs font-medium text-slate-400">Growth and expansion signals</p>
+                    <template x-for="signal in [...(selectedDraft.company_intelligence.growth_signals || []), ...(selectedDraft.company_intelligence.expansion_indicators || [])]" :key="signal">
+                      <p class="mt-2 text-xs leading-relaxed text-slate-300" x-text="signal"></p>
+                    </template>
+                  </div>
+                  <div class="rounded-lg bg-slate-700/20 p-3">
+                    <p class="text-xs font-medium text-slate-400">Technology adoption signals</p>
+                    <template x-for="signal in selectedDraft.company_intelligence.technology_adoption_signals || []" :key="signal">
+                      <p class="mt-2 text-xs leading-relaxed text-slate-300" x-text="signal"></p>
+                    </template>
+                  </div>
+                </div>
+
+                <!-- Pain Analysis -->
+                <div>
+                  <p class="text-xs font-medium uppercase tracking-wider text-cyan-400">Pain Analysis</p>
+
+                  <!-- Detected Business Problems: Diff -->
+                  <template x-if="diffMode">
+                    <div class="mt-2">
+                      <label class="text-xs text-slate-500 block mb-1">Detected Business Problems</label>
+                      <div class="bg-slate-900/60 rounded-lg p-3 border border-slate-700/60 leading-relaxed text-sm whitespace-pre-wrap">
+                        <template x-for="(word, idx) in cachedIntelDiff.detectedBusinessProblems" :key="'bp-' + idx">
+                          <span :class="{
+                            'bg-green-900/30 text-green-300 rounded-sm px-0.5': word.type === 'added',
+                            'bg-red-900/30 text-red-300 line-through rounded-sm px-0.5': word.type === 'removed',
+                            'text-slate-300': word.type === 'unchanged'
+                          }" x-text="word.text"></span>
+                        </template>
+                      </div>
+                    </div>
+                  </template>
+
+                  <!-- Detected Business Problems: Preview -->
+                  <template x-if="!editing && !diffMode">
+                    <div>
+                      <template x-for="problem in selectedDraft.company_intelligence.detected_business_problems || []" :key="problem">
+                        <p class="mt-2 rounded-lg border border-slate-700/60 p-3 text-sm text-slate-300" x-text="problem"></p>
+                      </template>
+                    </div>
+                  </template>
+
+                  <!-- Detected Business Problems: Edit -->
+                  <template x-if="editing">
+                    <div class="mt-2">
+                      <label for="edit-business-problems" class="text-xs text-slate-500 block mb-1">Detected Business Problems <span class="text-slate-600">(one per line)</span></label>
+                      <textarea id="edit-business-problems" x-model="editDetectedBusinessProblems"
+                                class="w-full bg-slate-700/50 border border-slate-600 rounded-lg px-4 py-3 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/20 transition-colors resize-y"
+                                rows="4"
+                                maxlength="3000"></textarea>
+                      <div class="flex justify-between mt-1 px-1">
+                        <span class="text-[10px] text-slate-600" x-show="editDetectedBusinessProblems !== originalDetectedBusinessProblems">✏️ Modified</span>
+                        <span class="text-[10px] ml-auto text-slate-600"><span x-text="editDetectedBusinessProblems.length"></span>/3000</span>
+                      </div>
+                    </div>
+                  </template>
+
+                  <!-- Operational Risks: Diff -->
+                  <template x-if="diffMode">
+                    <div class="mt-3">
+                      <label class="text-xs text-slate-500 block mb-1">Operational risks if scaling continues</label>
+                      <div class="bg-slate-900/60 rounded-lg p-3 border border-slate-700/60 leading-relaxed text-sm whitespace-pre-wrap">
+                        <template x-for="(word, idx) in cachedIntelDiff.operationalRisks" :key="'or-' + idx">
+                          <span :class="{
+                            'bg-green-900/30 text-green-300 rounded-sm px-0.5': word.type === 'added',
+                            'bg-red-900/30 text-red-300 line-through rounded-sm px-0.5': word.type === 'removed',
+                            'text-slate-400': word.type === 'unchanged'
+                          }" x-text="word.text"></span>
+                        </template>
+                      </div>
+                    </div>
+                  </template>
+
+                  <!-- Operational Risks: Preview -->
+                  <template x-if="!editing && !diffMode">
+                    <div>
+                      <p class="mt-3 text-xs font-medium text-slate-400">Operational risks if scaling continues</p>
+                      <template x-for="risk in selectedDraft.company_intelligence.operational_risks || []" :key="risk">
+                        <p class="mt-2 text-xs leading-relaxed text-slate-400" x-text="risk"></p>
+                      </template>
+                    </div>
+                  </template>
+
+                  <!-- Operational Risks: Edit -->
+                  <template x-if="editing">
+                    <div class="mt-3">
+                      <label for="edit-operational-risks" class="text-xs font-medium text-slate-400">Operational risks <span class="text-slate-600">(one per line)</span></label>
+                      <textarea id="edit-operational-risks" x-model="editOperationalRisks"
+                                class="mt-2 w-full bg-slate-700/50 border border-slate-600 rounded-lg px-4 py-3 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/20 transition-colors resize-y"
+                                rows="3"
+                                maxlength="2000"></textarea>
+                      <div class="flex justify-between mt-1 px-1">
+                        <span class="text-[10px] text-slate-600" x-show="editOperationalRisks !== originalOperationalRisks">✏️ Modified</span>
+                        <span class="text-[10px] ml-auto text-slate-600"><span x-text="editOperationalRisks.length"></span>/2000</span>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+
+                <!-- FlytBase Fit -->
+                <div class="rounded-lg border border-cyan-900/60 bg-cyan-950/20 p-4">
+                  <p class="text-xs font-medium uppercase tracking-wider text-cyan-400">FlytBase Fit</p>
+
+                  <!-- FlytBase Fit Summary: Diff -->
+                  <template x-if="diffMode">
+                    <div class="mt-2">
+                      <label class="text-xs text-slate-500 block mb-1">Summary</label>
+                      <div class="bg-slate-900/60 rounded-lg p-3 border border-slate-700/60 leading-relaxed text-sm whitespace-pre-wrap">
+                        <template x-for="(word, idx) in cachedIntelDiff.flytbaseFitSummary" :key="'ff-' + idx">
+                          <span :class="{
+                            'bg-green-900/30 text-green-300 rounded-sm px-0.5': word.type === 'added',
+                            'bg-red-900/30 text-red-300 line-through rounded-sm px-0.5': word.type === 'removed',
+                            'text-slate-200': word.type === 'unchanged'
+                          }" x-text="word.text"></span>
+                        </template>
+                      </div>
+                    </div>
+                  </template>
+
+                  <!-- FlytBase Fit Summary: Preview -->
+                  <template x-if="!editing && !diffMode">
+                    <p class="mt-2 text-sm leading-relaxed text-slate-200" x-text="selectedDraft.company_intelligence.flytbase_fit?.summary"></p>
+                  </template>
+
+                  <!-- FlytBase Fit Summary: Edit -->
+                  <template x-if="editing">
+                    <div class="mt-2">
+                      <label for="edit-flytbase-fit" class="text-xs text-slate-500 block mb-1">Summary</label>
+                      <textarea id="edit-flytbase-fit" x-model="editFlytbaseFitSummary"
+                                class="w-full bg-slate-700/50 border border-slate-600 rounded-lg px-4 py-3 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/20 transition-colors resize-y"
+                                rows="3"
+                                maxlength="2000"></textarea>
+                      <div class="flex justify-between mt-1 px-1">
+                        <span class="text-[10px] text-slate-600" x-show="editFlytbaseFitSummary !== originalFlytbaseFitSummary">✏️ Modified</span>
+                        <span class="text-[10px] ml-auto text-slate-600"><span x-text="editFlytbaseFitSummary.length"></span>/2000</span>
+                      </div>
+                    </div>
+                  </template>
+
+                  <!-- Recommended Sales Angle: Diff -->
+                  <template x-if="diffMode">
+                    <div class="mt-3">
+                      <label class="text-xs font-medium text-slate-400">Recommended sales angle</label>
+                      <div class="bg-slate-900/60 rounded-lg p-3 border border-slate-700/60 leading-relaxed text-sm whitespace-pre-wrap">
+                        <template x-for="(word, idx) in cachedIntelDiff.recommendedSalesAngle" :key="'rs-' + idx">
+                          <span :class="{
+                            'bg-green-900/30 text-green-300 rounded-sm px-0.5': word.type === 'added',
+                            'bg-red-900/30 text-red-300 line-through rounded-sm px-0.5': word.type === 'removed',
+                            'text-cyan-100': word.type === 'unchanged'
+                          }" x-text="word.text"></span>
+                        </template>
+                      </div>
+                    </div>
+                  </template>
+
+                  <!-- Recommended Sales Angle: Preview -->
+                  <template x-if="!editing && !diffMode">
+                    <p class="mt-3 text-xs font-medium text-slate-400">Recommended sales angle</p>
+                    <p class="mt-1 text-sm leading-relaxed text-cyan-100" x-text="selectedDraft.company_intelligence.recommended_sales_angle"></p>
+                  </template>
+
+                  <!-- Recommended Sales Angle: Edit -->
+                  <template x-if="editing">
+                    <div class="mt-3">
+                      <label for="edit-sales-angle" class="text-xs font-medium text-slate-400">Recommended sales angle</label>
+                      <textarea id="edit-sales-angle" x-model="editRecommendedSalesAngle"
+                                class="mt-1 w-full bg-slate-700/50 border border-slate-600 rounded-lg px-4 py-3 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/20 transition-colors resize-y"
+                                rows="2"
+                                maxlength="1000"></textarea>
+                      <div class="flex justify-between mt-1 px-1">
+                        <span class="text-[10px] text-slate-600" x-show="editRecommendedSalesAngle !== originalRecommendedSalesAngle">✏️ Modified</span>
+                        <span class="text-[10px] ml-auto text-slate-600"><span x-text="editRecommendedSalesAngle.length"></span>/1000</span>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+
+                <!-- Relevant Industry Context (read-only) -->
+                <div>
+                  <p class="text-xs font-medium uppercase tracking-wider text-cyan-400">Relevant Industry Context</p>
+                  <template x-for="incident in selectedDraft.company_intelligence.relevant_incidents || []" :key="incident.title">
+                    <article class="mt-2 rounded-lg bg-slate-700/20 p-3">
+                      <p class="text-sm font-medium text-slate-200" x-text="incident.title"></p>
+                      <p class="mt-1 text-xs leading-relaxed text-slate-400" x-text="incident.summary"></p>
+                      <p class="mt-2 text-xs text-cyan-300" x-text="incident.urgency"></p>
+                    </article>
+                  </template>
+                </div>
+              </section>
+            </template>
+
+            <!-- Company Hook (read-only) -->
+            <div>
+              <h4 class="text-xs text-slate-500 uppercase tracking-wider mb-2">Company Hook</h4>
+              <p class="text-sm text-slate-300 leading-relaxed bg-slate-700/20 p-3 rounded-lg" x-text="selectedDraft?.company_hook || '—'"></p>
+            </div>
+
+            <!-- Detected Pain Point (read-only) -->
+            <div>
+              <h4 class="text-xs text-slate-500 uppercase tracking-wider mb-2">Detected Pain Point</h4>
+              <p class="text-sm text-slate-300 leading-relaxed bg-slate-700/20 p-3 rounded-lg" x-text="selectedDraft?.pain_point || '—'"></p>
+            </div>
+
+            <!-- Email Draft — Preview / Edit / Diff toggle -->
+            <div>
+              <div class="flex items-center justify-between mb-2">
+                <h4 class="text-xs text-slate-500 uppercase tracking-wider">Email Draft</h4>
+                <div class="flex items-center gap-2">
+                  <template x-if="editing">
+                    <span class="text-xs text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded-full border border-cyan-500/20">Editing</span>
+                  </template>
+                  <template x-if="diffMode">
+                    <span class="text-xs text-violet-400 bg-violet-500/10 px-2 py-0.5 rounded-full border border-violet-500/20">Diff View</span>
+                  </template>
+                </div>
+              </div>
+
+              <!-- Diff View -->
+              <template x-if="diffMode">
+                <div class="space-y-4">
+                  <!-- Subject diff -->
+                  <div>
+                    <label class="text-xs text-slate-500 block mb-1">Subject</label>
+                    <div class="bg-slate-900/60 rounded-lg p-4 border border-slate-700/60 leading-relaxed text-sm whitespace-pre-wrap">
+                      <template x-for="(word, idx) in cachedDiff.subject" :key="'s-' + idx">
+                        <span :class="{
+                          'bg-green-900/30 text-green-300 rounded-sm px-0.5': word.type === 'added',
+                          'bg-red-900/30 text-red-300 line-through rounded-sm px-0.5': word.type === 'removed',
+                          'text-slate-300': word.type === 'unchanged'
+                        }" x-text="word.text"></span>
+                      </template>
+                    </div>
+                  </div>
+                  <!-- Body diff -->
+                  <div>
+                    <label class="text-xs text-slate-500 block mb-1">Body</label>
+                    <div class="bg-slate-900/60 rounded-lg p-4 border border-slate-700/60 leading-relaxed text-sm whitespace-pre-wrap">
+                      <template x-for="(word, idx) in cachedDiff.body" :key="'b-' + idx">
+                        <span :class="{
+                          'bg-green-900/30 text-green-300 rounded-sm px-0.5': word.type === 'added',
+                          'bg-red-900/30 text-red-300 line-through rounded-sm px-0.5': word.type === 'removed',
+                          'text-slate-300': word.type === 'unchanged'
+                        }" x-text="word.text"></span>
+                      </template>
+                    </div>
+                  </div>
+                  <!-- Diff legend -->
+                  <div class="flex items-center gap-4 text-[10px] text-slate-500 bg-slate-800/50 rounded-lg px-3 py-2 border border-slate-700/40">
+                    <span class="flex items-center gap-1.5">
+                      <span class="inline-block w-3 h-3 rounded-sm bg-green-900/40 border border-green-700/40"></span>
+                      Added
+                    </span>
+                    <span class="flex items-center gap-1.5">
+                      <span class="inline-block w-3 h-3 rounded-sm bg-red-900/40 border border-red-700/40"></span>
+                      Removed
+                    </span>
+                    <span class="text-slate-600">LCS word-level comparison</span>
+                  </div>
+                </div>
+              </template>
+
+              <!-- Preview (when not editing and not diff mode) -->
+              <template x-if="!editing && !diffMode">
+                <div>
+                  <!-- Subject line -->
+                  <div class="mb-3">
+                    <label class="text-xs text-slate-500 block mb-1">Subject</label>
+                    <div class="bg-slate-700/50 rounded-lg px-4 py-2 border border-slate-700">
+                      <span class="text-sm text-slate-200 font-medium" x-text="selectedDraft?.subject || 'No subject'"></span>
+                    </div>
+                  </div>
+                  <!-- Body -->
+                  <div>
+                    <label class="text-xs text-slate-500 block mb-1">Body</label>
+                    <div class="bg-slate-700/20 rounded-lg p-4 border border-slate-700/60">
+                      <p class="text-sm text-slate-300 leading-relaxed whitespace-pre-wrap" x-text="selectedDraft?.body || 'No body'"></p>
+                    </div>
+                  </div>
+                </div>
+              </template>
+
+              <!-- Editing -->
+              <template x-if="editing">
+                <div>
+                  <!-- Subject line -->
+                  <div class="mb-3">
+                    <label for="edit-subject" class="text-xs text-slate-500 block mb-1">Subject</label>
+                    <div>
+                      <input type="text" id="edit-subject"
+                             x-model="editSubject"
+                             class="w-full bg-slate-700/50 border border-slate-600 rounded-lg px-4 py-2 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/20 transition-colors"
+                             placeholder="Email subject line"
+                             maxlength="200">
+                      <div class="flex justify-between mt-1 px-1">
+                        <span class="text-[10px] text-slate-600" x-show="draftDirty">✏️ Modified</span>
+                        <span class="text-[10px] ml-auto" :class="editSubject.length > 180 ? 'text-yellow-400' : 'text-slate-600'">
+                          <span x-text="editSubject.length"></span>/200
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <!-- Body -->
+                  <div>
+                    <label for="edit-body" class="text-xs text-slate-500 block mb-1">Body</label>
+                    <div>
+                      <textarea id="edit-body" x-model="editBody"
+                                class="w-full bg-slate-700/50 border border-slate-600 rounded-lg px-4 py-3 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/20 transition-colors resize-y font-mono"
+                                rows="12"
+                                placeholder="Email body text..."
+                                maxlength="5000"></textarea>
+                      <div class="flex justify-between mt-1 px-1">
+                        <span class="text-[10px] text-slate-600" x-show="draftDirty">✏️ Modified</span>
+                        <span class="text-[10px] ml-auto" :class="editBody.length > 4500 ? 'text-yellow-400' : 'text-slate-600'">
+                          <span x-text="editBody.length"></span>/5000
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </template>
+
+              <!-- Edit mode indicator bar -->
+              <template x-if="editing">
+                <div class="mt-3 space-y-2">
+                  <div class="flex items-center gap-2 text-xs text-slate-500 bg-slate-700/20 rounded-lg px-3 py-2">
+                    <span>💡</span>
+                    <span>Changes are saved when you approve. Switch to Preview to see the final version.</span>
+                  </div>
+                  <!-- Revert buttons - only show when edits have been made -->
+                  <div x-show="draftDirty" class="flex justify-end">
+                    <button @click="revertToOriginal()"
+                            class="flex items-center gap-1.5 px-3 py-1.5 bg-slate-700/40 hover:bg-slate-700/60 text-slate-400 hover:text-slate-300 border border-slate-600/30 rounded-lg text-xs font-medium transition-all btn-press">
+                      ↩️ Revert Email to Original
+                    </button>
+                  </div>
+                  <div x-show="intelDirty" class="flex justify-end">
+                    <button @click="revertIntelToOriginal()"
+                            class="flex items-center gap-1.5 px-3 py-1.5 bg-slate-700/40 hover:bg-slate-700/60 text-slate-400 hover:text-slate-300 border border-slate-600/30 rounded-lg text-xs font-medium transition-all btn-press">
+                      ↩️ Revert Intelligence to Original
+                    </button>
+                  </div>
+                </div>
+              </template>
+            </div>
+
+            <!-- Action buttons -->
+            <template x-if="selectedDraft?.status === 'pending_approval'">
+              <div class="flex gap-3 pt-2 border-t border-slate-700/50">
+                <button @click="approveDraft(selectedDraft)"
+                        class="flex-1 px-4 py-2.5 bg-green-500/10 text-green-400 border border-green-500/20 rounded-lg text-sm font-medium hover:bg-green-500/20 transition-colors btn-press">
+                  ✅ Approve Draft
+                </button>
+                <button @click="cancelEdit(); rejectDraft(selectedDraft)"
+                        class="flex-1 px-4 py-2.5 bg-red-500/10 text-red-400 border border-red-500/20 rounded-lg text-sm font-medium hover:bg-red-500/20 transition-colors btn-press">
+                  ❌ Reject Draft
+                </button>
+              </div>
+            </template>
+          </div>
+        </div>
+      </div>
+    </div>
+  </template>
+</div>
+
+<script>
+function outreachApp() {
+  return {
+    loading: true,
+    drafts: [],
+    selectedDraft: null,
+    editing: false,
+    diffMode: false,
+    cachedDiff: { subject: [], body: [] },
+    cachedIntelDiff: {
+      companySituationSummary: [],
+      flytbaseFitSummary: [],
+      recommendedSalesAngle: [],
+      detectedBusinessProblems: [],
+      operationalRisks: [],
+    },
+    editSubject: '',
+    editBody: '',
+    originalSubject: '',
+    originalBody: '',
+    // Intelligence editing state
+    editCompanySituationSummary: '',
+    originalCompanySituationSummary: '',
+    editFlytbaseFitSummary: '',
+    originalFlytbaseFitSummary: '',
+    editRecommendedSalesAngle: '',
+    originalRecommendedSalesAngle: '',
+    editDetectedBusinessProblems: '',
+    originalDetectedBusinessProblems: '',
+    editOperationalRisks: '',
+    originalOperationalRisks: '',
+
+    async init() {
+      await this.loadDrafts();
+      this.loading = false;
+    },
+
+    async loadDrafts() {
+      try {
+        const res = await fetch('/api/v1/activity?agent_type=outreach');
+        const data = await res.json();
+        const tasks = data.tasks || [];
+
+        // Load each outreach task's details
+        const details = await Promise.all(
+          tasks.map(async (t) => {
+            try {
+              const r = await fetch('/api/v1/outreach/' + t.task_id);
+              if (!r.ok) return null;
+              const o = await r.json();
+              return {
+                task_id: t.task_id,
+                draft_id: o.draft_id,
+                company_name: o.company_name || t.company_name,
+                status: o.approval_summary?.status || 'pending_approval',
+                subject: o.email_draft?.subject,
+                body: o.email_draft?.body,
+                strategy_channel: o.outreach_strategy?.recommended_channel,
+                strategy_urgency: o.outreach_strategy?.urgency,
+                company_hook: o.personalization?.company_hook,
+                pain_point: o.personalization?.detected_pain_point,
+                company_intelligence: o.company_intelligence || {},
+                created_at: t.created_at,
+              };
+            } catch (e) {
+              return null;
+            }
+          })
+        );
+
+        this.drafts = details.filter(d => d !== null);
+      } catch (e) {
+        console.error('Failed to load drafts:', e);
+      }
+    },
+
+    get draftDirty() {
+      return this.editSubject !== this.originalSubject
+        || this.editBody !== this.originalBody;
+    },
+
+    get intelDirty() {
+      return this.editCompanySituationSummary !== this.originalCompanySituationSummary
+        || this.editFlytbaseFitSummary !== this.originalFlytbaseFitSummary
+        || this.editRecommendedSalesAngle !== this.originalRecommendedSalesAngle
+        || this.editDetectedBusinessProblems !== this.originalDetectedBusinessProblems
+        || this.editOperationalRisks !== this.originalOperationalRisks;
+    },
+
+    get overallDirty() {
+      return this.draftDirty || this.intelDirty;
+    },
+
+    openDetail(draft) {
+      this.editing = false;
+      this.diffMode = false;
+      this.cachedDiff = { subject: [], body: [] };
+      this.cachedIntelDiff = {
+        companySituationSummary: [],
+        flytbaseFitSummary: [],
+        recommendedSalesAngle: [],
+        detectedBusinessProblems: [],
+        operationalRisks: [],
+      };
+      this.editSubject = draft.subject || '';
+      this.editBody = draft.body || '';
+      this.originalSubject = draft.subject || '';
+      this.originalBody = draft.body || '';
+
+      // Capture intelligence originals
+      const ci = draft.company_intelligence || {};
+      this.originalCompanySituationSummary = ci.company_situation_summary || '';
+      this.originalFlytbaseFitSummary = (ci.flytbase_fit && ci.flytbase_fit.summary) || '';
+      this.originalRecommendedSalesAngle = ci.recommended_sales_angle || '';
+      this.originalDetectedBusinessProblems = (ci.detected_business_problems || []).join('\n');
+      this.originalOperationalRisks = (ci.operational_risks || []).join('\n');
+
+      // Reset edit values to originals
+      this.editCompanySituationSummary = this.originalCompanySituationSummary;
+      this.editFlytbaseFitSummary = this.originalFlytbaseFitSummary;
+      this.editRecommendedSalesAngle = this.originalRecommendedSalesAngle;
+      this.editDetectedBusinessProblems = this.originalDetectedBusinessProblems;
+      this.editOperationalRisks = this.originalOperationalRisks;
+
+      this.selectedDraft = draft;
+    },
+
+    _syncIntelEditsToDraft() {
+      const ci = this.selectedDraft.company_intelligence || {};
+      ci.company_situation_summary = this.editCompanySituationSummary;
+      if (!ci.flytbase_fit) ci.flytbase_fit = {};
+      ci.flytbase_fit.summary = this.editFlytbaseFitSummary;
+      ci.recommended_sales_angle = this.editRecommendedSalesAngle;
+      ci.detected_business_problems = this.editDetectedBusinessProblems
+        ? this.editDetectedBusinessProblems.split('\n').filter(Boolean)
+        : [];
+      ci.operational_risks = this.editOperationalRisks
+        ? this.editOperationalRisks.split('\n').filter(Boolean)
+        : [];
+      this.selectedDraft.company_intelligence = ci;
+    },
+
+    toggleDiff() {
+      this.diffMode = !this.diffMode;
+      if (this.diffMode && this.editing) {
+        // Sync edits to the draft before switching to diff view
+        this.selectedDraft.subject = this.editSubject;
+        this.selectedDraft.body = this.editBody;
+        this._syncIntelEditsToDraft();
+        this.editing = false;
+      }
+      // Cache the diff result when entering diff mode
+      if (this.diffMode) {
+        this.cachedDiff = {
+          subject: this.wordDiff(this.originalSubject || '', this.editSubject || ''),
+          body: this.wordDiff(this.originalBody || '', this.editBody || ''),
+        };
+        this.cachedIntelDiff = {
+          companySituationSummary: this.wordDiff(this.originalCompanySituationSummary, this.editCompanySituationSummary),
+          flytbaseFitSummary: this.wordDiff(this.originalFlytbaseFitSummary, this.editFlytbaseFitSummary),
+          recommendedSalesAngle: this.wordDiff(this.originalRecommendedSalesAngle, this.editRecommendedSalesAngle),
+          detectedBusinessProblems: this.wordDiff(this.originalDetectedBusinessProblems, this.editDetectedBusinessProblems),
+          operationalRisks: this.wordDiff(this.originalOperationalRisks, this.editOperationalRisks),
+        };
+      }
+    },
+
+    wordDiff(oldText, newText) {
+      // Word-level diff using longest common subsequence
+      const oldWords = oldText.split(/(\S+\s*)/).filter(Boolean);
+      const newWords = newText.split(/(\S+\s*)/).filter(Boolean);
+
+      if (oldWords.length === 0 && newWords.length === 0) return [{ text: '', type: 'unchanged' }];
+      if (oldWords.length === 0) return newWords.map(w => ({ text: w, type: 'added' }));
+      if (newWords.length === 0) return oldWords.map(w => ({ text: w, type: 'removed' }));
+
+      const m = oldWords.length, n = newWords.length;
+      const lcs = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+
+      for (let i = 1; i <= m; i++) {
+        for (let j = 1; j <= n; j++) {
+          if (oldWords[i - 1] === newWords[j - 1]) {
+            lcs[i][j] = lcs[i - 1][j - 1] + 1;
+          } else {
+            lcs[i][j] = Math.max(lcs[i - 1][j], lcs[i][j - 1]);
+          }
+        }
+      }
+
+      // Backtrack to build diff
+      const result = [];
+      let i = m, j = n;
+      while (i > 0 || j > 0) {
+        if (i > 0 && j > 0 && oldWords[i - 1] === newWords[j - 1]) {
+          result.unshift({ text: oldWords[i - 1], type: 'unchanged' });
+          i--; j--;
+        } else if (j > 0 && (i === 0 || lcs[i][j - 1] >= lcs[i - 1][j])) {
+          result.unshift({ text: newWords[j - 1], type: 'added' });
+          j--;
+        } else {
+          result.unshift({ text: oldWords[i - 1], type: 'removed' });
+          i--;
+        }
+      }
+
+      return result;
+    },
+
+    toggleEdit() {
+      if (this.diffMode) {
+        this.diffMode = false; // Exit diff mode
+      }
+      if (this.editing) {
+        // Switching from edit to preview — sync edits back to the draft object
+        this.selectedDraft.subject = this.editSubject;
+        this.selectedDraft.body = this.editBody;
+        this._syncIntelEditsToDraft();
+      }
+      this.editing = !this.editing;
+    },
+
+    revertToOriginal() {
+      this.editSubject = this.originalSubject || '';
+      this.editBody = this.originalBody || '';
+    },
+
+    revertIntelToOriginal() {
+      this.editCompanySituationSummary = this.originalCompanySituationSummary || '';
+      this.editFlytbaseFitSummary = this.originalFlytbaseFitSummary || '';
+      this.editRecommendedSalesAngle = this.originalRecommendedSalesAngle || '';
+      this.editDetectedBusinessProblems = this.originalDetectedBusinessProblems || '';
+      this.editOperationalRisks = this.originalOperationalRisks || '';
+    },
+
+    cancelEdit() {
+      this.editing = false;
+      this.diffMode = false;
+      this.cachedDiff = { subject: [], body: [] };
+      this.cachedIntelDiff = {
+        companySituationSummary: [],
+        flytbaseFitSummary: [],
+        recommendedSalesAngle: [],
+        detectedBusinessProblems: [],
+        operationalRisks: [],
+      };
+      this.editSubject = this.originalSubject || '';
+      this.editBody = this.originalBody || '';
+      this.editCompanySituationSummary = this.originalCompanySituationSummary || '';
+      this.editFlytbaseFitSummary = this.originalFlytbaseFitSummary || '';
+      this.editRecommendedSalesAngle = this.originalRecommendedSalesAngle || '';
+      this.editDetectedBusinessProblems = this.originalDetectedBusinessProblems || '';
+      this.editOperationalRisks = this.originalOperationalRisks || '';
+    },
+
+    async approveDraft(draft) {
+      if (!draft.draft_id) return;
+
+      // Determine if we're approving from the modal (inline) or from the card
+      const fromModal = this.selectedDraft && this.selectedDraft.draft_id === draft.draft_id;
+
+      // Modal approve: sync the latest edit fields to the draft regardless of mode
+      // (handles approval from edit mode, preview mode, or diff mode)
+      if (fromModal) {
+        draft.subject = this.editSubject;
+        draft.body = this.editBody;
+        this._syncIntelEditsToDraft();
+        this.editing = false;
+        this.diffMode = false;
+      }
+
+      try {
+        const body = {
+          approved_by: 'BDR',
+          approval_notes: '',
+        };
+
+        // Modal approve: always send the current (possibly edited) content
+        // This persists edits to the draft and captures them in immutable history
+        if (fromModal) {
+          body.edited_subject = draft.subject || '';
+          body.edited_body = draft.body || '';
+
+          // Send edited intelligence if any changes were made
+          const ci = draft.company_intelligence || {};
+          const editedIntel = {};
+          if (this.intelDirty) {
+            editedIntel.company_situation_summary = this.editCompanySituationSummary;
+            editedIntel.recommended_sales_angle = this.editRecommendedSalesAngle;
+            editedIntel.flytbase_fit = ci.flytbase_fit || {};
+            editedIntel.flytbase_fit.summary = this.editFlytbaseFitSummary;
+            editedIntel.detected_business_problems = this.editDetectedBusinessProblems
+              ? this.editDetectedBusinessProblems.split('\n').filter(Boolean)
+              : [];
+            editedIntel.operational_risks = this.editOperationalRisks
+              ? this.editOperationalRisks.split('\n').filter(Boolean)
+              : [];
+            body.edited_intelligence = editedIntel;
+          }
+        }
+        // Card-level approve: no edits sent — API uses existing draft values.
+        // The inline editor only exists in the modal; card approve is a quick action.
+
+        const res = await fetch('/api/v1/outreach/' + draft.draft_id + '/approve', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (res.ok) {
+          draft.status = 'approved';
+          this.selectedDraft = null;
+          this.cancelEdit();
+        }
+      } catch (e) {
+        console.error('Failed to approve draft:', e);
+      }
+    },
+
+    async rejectDraft(draft) {
+      if (!draft.draft_id) return;
+      try {
+        const res = await fetch('/api/v1/outreach/' + draft.draft_id + '/reject', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rejected_reason: 'Needs revision' }),
+        });
+        if (res.ok) {
+          draft.status = 'rejected';
+          this.selectedDraft = null;
+          this.cancelEdit();
+        }
+      } catch (e) {
+        console.error('Failed to reject draft:', e);
+      }
+    }
+  };
+}
+</script>
+{% endblock %}

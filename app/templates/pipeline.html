@@ -1,0 +1,221 @@
+{% extends "base.html" %}
+{% set active_nav = "pipeline" %}
+
+{% block heading %}Pipeline Kanban{% endblock %}
+
+{% block content %}
+<div x-data="pipelineApp()" x-init="init()" class="space-y-6">
+  <!-- Skeleton loading -->
+  <div x-show="loading" class="space-y-6">
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <template x-for="i in 4" :key="i">
+        <div class="bg-slate-800 rounded-xl p-4 border border-slate-700/50">
+          <div class="skeleton skeleton-text-sm"></div>
+          <div class="skeleton skeleton-text w-12 mt-2"></div>
+        </div>
+      </template>
+    </div>
+    <div class="flex gap-4 overflow-hidden">
+      <template x-for="i in 5" :key="i">
+        <div class="flex-shrink-0 w-72 bg-slate-800/50 rounded-xl border border-slate-700/50 p-3">
+          <div class="skeleton skeleton-title"></div>
+          <template x-for="j in 2" :key="j">
+            <div class="mt-3">
+              <div class="skeleton skeleton-card h-24"></div>
+            </div>
+          </template>
+        </div>
+      </template>
+    </div>
+  </div>
+
+  <!-- Stats bar -->
+  <template x-if="!loading">
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div class="bg-slate-800 rounded-xl p-4 border border-slate-700/50">
+        <span class="text-slate-400 text-xs font-medium">Active Leads</span>
+        <div class="text-2xl font-semibold text-slate-100 mt-1" x-text="allLeads.length">0</div>
+      </div>
+      <div class="bg-slate-800 rounded-xl p-4 border border-slate-700/50">
+        <span class="text-slate-400 text-xs font-medium">Healthy</span>
+        <div class="text-2xl font-semibold text-green-400 mt-1" x-text="allLeads.filter(l => l.stage_health === 'healthy').length">0</div>
+      </div>
+      <div class="bg-slate-800 rounded-xl p-4 border border-slate-700/50">
+        <span class="text-slate-400 text-xs font-medium">Stale</span>
+        <div class="text-2xl font-semibold text-yellow-400 mt-1" x-text="allLeads.filter(l => l.stage_health === 'stale').length">0</div>
+      </div>
+      <div class="bg-slate-800 rounded-xl p-4 border border-slate-700/50">
+        <span class="text-slate-400 text-xs font-medium">Critical</span>
+        <div class="text-2xl font-semibold text-red-400 mt-1" x-text="allLeads.filter(l => l.stage_health === 'critical').length">0</div>
+      </div>
+    </div>
+  </template>
+
+  <!-- Kanban Board -->
+  <template x-if="!loading">
+    <div class="flex gap-4 overflow-x-auto pb-4" style="scroll-snap-type: x mandatory;">
+      <template x-for="(stage, idx) in stages" :key="stage.name">
+        <div class="flex-shrink-0 w-72 bg-slate-800/50 rounded-xl border border-slate-700/50 flex flex-col"
+             style="scroll-snap-align: start;">
+          <!-- Stage header -->
+          <div class="flex items-center justify-between px-4 py-3 border-b border-slate-700/50">
+            <div class="flex items-center gap-2">
+              <span class="w-2.5 h-2.5 rounded-full" :style="'background-color: ' + stage.color"></span>
+              <h3 class="text-sm font-semibold text-slate-200" x-text="stage.display_name"></h3>
+            </div>
+            <span class="text-xs text-slate-500 bg-slate-700/50 px-2 py-0.5 rounded-full"
+                  x-text="getStageLeads(stage.name).length"></span>
+          </div>
+
+          <!-- Cards container -->
+          <div class="flex-1 px-3 py-3 space-y-3 overflow-y-auto min-h-[200px] max-h-[calc(100vh-300px)]">
+            <!-- Empty state -->
+            <div x-show="getStageLeads(stage.name).length === 0"
+                 class="text-center py-8 text-slate-600 text-xs">
+              <span class="block text-lg mb-1">📭</span>
+              No leads in this stage
+            </div>
+
+            <template x-for="lead in getStageLeads(stage.name)" :key="lead.lead_id">
+              <div class="bg-slate-800 rounded-lg border border-slate-700/50 p-4 hover:border-slate-600 transition-colors cursor-pointer"
+                   @click="window.location = '/leads/' + lead.lead_id">
+                <!-- Company name + score -->
+                <div class="flex items-start justify-between gap-2 mb-2">
+                  <span class="text-sm font-medium text-slate-200 truncate" x-text="lead.company_name || 'Unknown'"></span>
+                  <span x-show="lead.overall_score != null"
+                        class="inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-semibold flex-shrink-0"
+                        :class="{
+                          'bg-green-900/30 text-green-400': lead.overall_score >= 70,
+                          'bg-yellow-900/30 text-yellow-400': lead.overall_score >= 40 && lead.overall_score < 70,
+                          'bg-red-900/30 text-red-400': lead.overall_score < 40
+                        }"
+                        x-text="lead.overall_score"></span>
+                </div>
+
+                <!-- Health + Days + Priority -->
+                <div class="flex items-center gap-2 text-xs">
+                  <span class="inline-flex items-center gap-1"
+                        :class="{
+                          'text-green-400': lead.stage_health === 'healthy',
+                          'text-yellow-400': lead.stage_health === 'stale',
+                          'text-red-400': lead.stage_health === 'critical'
+                        }">
+                    <span class="w-1.5 h-1.5 rounded-full"
+                          :class="{
+                            'bg-green-500': lead.stage_health === 'healthy',
+                            'bg-yellow-500': lead.stage_health === 'stale',
+                            'bg-red-500': lead.stage_health === 'critical'
+                          }"></span>
+                    <span class="capitalize" x-text="lead.stage_health"></span>
+                  </span>
+                  <span class="text-slate-500">·</span>
+                  <span class="text-slate-500" x-text="lead.days_in_stage + 'd'"></span>
+                  <span x-show="lead.priority"
+                        class="ml-auto text-[10px] font-medium px-1.5 py-0.5 rounded"
+                        :class="{
+                          'bg-green-900/30 text-green-400': lead.priority === 'HOT',
+                          'bg-yellow-900/30 text-yellow-400': lead.priority === 'WARM',
+                          'bg-slate-700/50 text-slate-400': lead.priority === 'COLD'
+                        }"
+                        x-text="lead.priority"></span>
+                </div>
+
+                <!-- Next action preview -->
+                <p x-show="lead.next_action" class="text-xs text-slate-500 mt-2 truncate" x-text="lead.next_action"></p>
+
+                <!-- Advance button -->
+                <div class="mt-3 pt-2 border-t border-slate-700/30">
+                  <button @click.stop="advanceLead(lead)"
+                          class="w-full text-xs px-3 py-1.5 rounded-lg bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 hover:bg-cyan-500/20 transition-colors btn-press"
+                          :disabled="advancing === lead.lead_id">
+                    <span x-show="advancing !== lead.lead_id">→ Advance to next stage</span>
+                    <span x-show="advancing === lead.lead_id" class="flex items-center justify-center gap-1">
+                      <span class="w-3 h-3 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin inline-block"></span>
+                      Advancing...
+                    </span>
+                  </button>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+      </template>
+    </div>
+  </template>
+</div>
+
+<script>
+function pipelineApp() {
+  return {
+    loading: true,
+    allLeads: [],
+    advancing: null,
+    stages: [
+      { name: 'new', display_name: 'New', color: '#3b82f6' },
+      { name: 'researching', display_name: 'Researching', color: '#6366f1' },
+      { name: 'qualified', display_name: 'Qualified', color: '#06b6d4' },
+      { name: 'outreach', display_name: 'Outreach', color: '#14b8a6' },
+      { name: 'meeting_scheduled', display_name: 'Meeting', color: '#22c55e' },
+      { name: 'negotiation', display_name: 'Negotiation', color: '#eab308' },
+      { name: 'closed_won', display_name: 'Won', color: '#34d399' },
+      { name: 'closed_lost', display_name: 'Lost', color: '#ef4444' },
+    ],
+
+    stageOrder: ['new', 'researching', 'qualified', 'outreach', 'meeting_scheduled', 'negotiation', 'closed_won', 'closed_lost'],
+
+    async init() {
+      await this.loadLeads();
+      this.loading = false;
+    },
+
+    async loadLeads() {
+      try {
+        const res = await fetch('/api/v1/pipeline/leads');
+        const data = await res.json();
+        this.allLeads = data.leads || [];
+      } catch (e) {
+        console.error('Failed to load leads:', e);
+      }
+    },
+
+    getStageLeads(stageName) {
+      return this.allLeads.filter(l => (l.current_stage || 'new') === stageName);
+    },
+
+    getNextStage(currentStage) {
+      const idx = this.stageOrder.indexOf(currentStage);
+      if (idx === -1 || idx >= this.stageOrder.length - 1) return null;
+      return this.stageOrder[idx + 1];
+    },
+
+    async advanceLead(lead) {
+      const nextStage = this.getNextStage(lead.current_stage);
+      if (!nextStage) return;
+
+      this.advancing = lead.lead_id;
+      try {
+        const res = await fetch('/api/v1/pipeline/' + lead.lead_id + '/advance', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            new_stage: nextStage,
+            reason: 'Advanced by BDR via Kanban',
+            advanced_by: 'BDR',
+          }),
+        });
+        if (res.ok) {
+          // Reload to get fresh data
+          await this.loadLeads();
+        } else {
+          console.error('Failed to advance lead, status:', res.status);
+        }
+      } catch (e) {
+        console.error('Failed to advance lead:', e);
+      } finally {
+        this.advancing = null;
+      }
+    }
+  };
+}
+</script>
+{% endblock %}

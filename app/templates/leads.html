@@ -1,0 +1,320 @@
+{% extends "base.html" %}
+{% set active_nav = "leads" %}
+
+{% block heading %}Lead Intelligence{% endblock %}
+
+{% block content %}
+<div x-data="leadsApp()" x-init="init()" class="space-y-6">
+  <!-- Skeleton loading -->
+  <div x-show="loading" class="space-y-6">
+    <div class="flex gap-3">
+      <div class="skeleton skeleton-text w-48"></div>
+      <div class="skeleton skeleton-text w-32"></div>
+      <div class="skeleton skeleton-text w-32"></div>
+    </div>
+    <div class="bg-slate-800 rounded-xl border border-slate-700/50 p-4">
+      <template x-for="i in 5" :key="i">
+        <div class="flex items-center gap-4 py-3 border-b border-slate-700/30 last:border-b-0">
+          <div class="flex-1"><div class="skeleton skeleton-text w-1/3"></div></div>
+          <div class="flex-1"><div class="skeleton skeleton-text w-1/4"></div></div>
+          <div class="flex-1"><div class="skeleton skeleton-text w-1/5"></div></div>
+          <div><div class="skeleton skeleton-circle w-8 h-8"></div></div>
+          <div><div class="skeleton skeleton-text w-12"></div></div>
+        </div>
+      </template>
+    </div>
+  </div>
+
+  <template x-if="!loading">
+    <div class="space-y-6">
+      <!-- Filters bar -->
+      <div class="flex flex-wrap items-center gap-3">
+        <div class="relative flex-1 min-w-[200px] max-w-sm">
+          <label for="lead-search" class="sr-only">Search leads by company name</label>
+          <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm">🔍</span>
+          <input type="text" id="lead-search" x-model="search" @input="filterLeads()" placeholder="Search by company or contact..."
+                 class="w-full bg-slate-800 border border-slate-700 rounded-lg pl-9 pr-4 py-2.5 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500/50 transition-all">
+        </div>
+          <label for="filter-stage" class="sr-only">Filter by pipeline stage</label>
+          <select id="filter-stage" x-model="filterStage" @change="filterLeads()"
+                class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-300 focus:outline-none focus:ring-2 focus:ring-cyan-500/50">
+          <option value="">All Stages</option>
+          <option value="new">New</option>
+          <option value="researching">Researching</option>
+          <option value="qualified">Qualified</option>
+          <option value="outreach">Outreach</option>
+          <option value="meeting_scheduled">Meeting Scheduled</option>
+          <option value="negotiation">Negotiation</option>
+          <option value="closed_won">Closed Won</option>
+          <option value="closed_lost">Closed Lost</option>
+        </select>
+
+        <label for="filter-health" class="sr-only">Filter by lead health status</label>
+        <select id="filter-health" x-model="filterHealth" @change="filterLeads()"
+                class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-300 focus:outline-none focus:ring-2 focus:ring-cyan-500/50">
+          <option value="">All Health</option>
+          <option value="healthy">Healthy</option>
+          <option value="stale">Stale</option>
+          <option value="critical">Critical</option>
+        </select>
+
+        <span class="text-xs text-slate-500" x-text="`${filteredLeads.length} leads`"></span>
+      </div>
+
+      <!-- Table -->
+      <div class="bg-slate-800 rounded-xl border border-slate-700/50 overflow-hidden">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="border-b border-slate-700/50">
+              <th class="text-left px-4 py-3 text-slate-400 font-medium cursor-pointer hover:text-slate-200 transition-colors" @click="sortBy('company_name')">
+                Company <span x-show="sortField === 'company_name'" x-text="sortDir === 'asc' ? '↑' : '↓'" class="text-cyan-400"></span>
+              </th>
+              <th class="text-left px-4 py-3 text-slate-400 font-medium">Contact</th>
+              <th class="text-left px-4 py-3 text-slate-400 font-medium cursor-pointer hover:text-slate-200 transition-colors" @click="sortBy('current_stage')">
+                Stage <span x-show="sortField === 'current_stage'" x-text="sortDir === 'asc' ? '↑' : '↓'" class="text-cyan-400"></span>
+              </th>
+              <th class="text-center px-4 py-3 text-slate-400 font-medium cursor-pointer hover:text-slate-200 transition-colors" @click="sortBy('overall_score')">
+                Score <span x-show="sortField === 'overall_score'" x-text="sortDir === 'asc' ? '↑' : '↓'" class="text-cyan-400"></span>
+              </th>
+              <th class="text-left px-4 py-3 text-slate-400 font-medium">Priority</th>
+              <th class="text-left px-4 py-3 text-slate-400 font-medium cursor-pointer hover:text-slate-200 transition-colors" @click="sortBy('stage_health')">
+                Health <span x-show="sortField === 'stage_health'" x-text="sortDir === 'asc' ? '↑' : '↓'" class="text-cyan-400"></span>
+              </th>
+              <th class="text-right px-4 py-3 text-slate-400 font-medium cursor-pointer hover:text-slate-200 transition-colors" @click="sortBy('days_in_stage')">
+                Days <span x-show="sortField === 'days_in_stage'" x-text="sortDir === 'asc' ? '↑' : '↓'" class="text-cyan-400"></span>
+              </th>
+            </tr>
+          </thead>
+          <tbody id="leads-table">
+            <template x-for="lead in filteredLeads" :key="lead.lead_id">
+              <tr class="border-b border-slate-700/30 hover:bg-slate-700/30 cursor-pointer transition-colors"
+                  @click="window.location = '/leads/' + lead.lead_id">
+                <td class="px-4 py-3">
+                  <span class="text-slate-200 font-medium" x-text="lead.company_name || 'Unknown'"></span>
+                </td>
+                <td class="px-4 py-3 text-slate-400" x-text="lead.contact_name || '—'"></td>
+                <td class="px-4 py-3">
+                  <span class="capitalize text-slate-300" x-text="lead.current_stage.replace('_', ' ')"></span>
+                </td>
+                <td class="px-4 py-3 text-center">
+                  <span x-show="lead.overall_score != null"
+                        class="inline-flex items-center justify-center w-8 h-8 rounded-full text-xs font-semibold"
+                        :class="{
+                          'bg-green-900/30 text-green-400': lead.overall_score >= 70,
+                          'bg-yellow-900/30 text-yellow-400': lead.overall_score >= 40 && lead.overall_score < 70,
+                          'bg-red-900/30 text-red-400': lead.overall_score < 40
+                        }"
+                        x-text="lead.overall_score"></span>
+                  <span x-show="lead.overall_score == null" class="text-slate-600">—</span>
+                </td>
+                <td class="px-4 py-3">
+                  <span x-show="lead.priority"
+                        class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium"
+                        :class="{
+                          'bg-green-900/30 text-green-400 border border-green-800': lead.priority === 'HOT',
+                          'bg-yellow-900/30 text-yellow-400 border border-yellow-800': lead.priority === 'WARM',
+                          'bg-slate-700/50 text-slate-400 border border-slate-600': lead.priority === 'COLD'
+                        }"
+                        x-text="lead.priority"></span>
+                </td>
+                <td class="px-4 py-3">
+                  <span class="inline-flex items-center gap-1.5 text-xs font-medium"
+                        :class="{
+                          'text-green-400': lead.stage_health === 'healthy',
+                          'text-yellow-400': lead.stage_health === 'stale',
+                          'text-red-400': lead.stage_health === 'critical'
+                        }">
+                    <span class="w-1.5 h-1.5 rounded-full"
+                          :class="{
+                            'bg-green-500': lead.stage_health === 'healthy',
+                            'bg-yellow-500': lead.stage_health === 'stale',
+                            'bg-red-500': lead.stage_health === 'critical'
+                          }"></span>
+                    <span class="capitalize" x-text="lead.stage_health"></span>
+                  </span>
+                </td>
+                <td class="px-4 py-3 text-right text-slate-400" x-text="lead.days_in_stage + 'd'"></td>
+              </tr>
+            </template>
+              <tr x-show="filteredLeads.length === 0">
+              <td colspan="7" class="px-4 py-12 text-center text-slate-500 text-sm">
+                No leads found. Run a research task to get started.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </template>
+</div>
+
+<script>
+function leadsApp() {
+  return {
+    loading: true,
+    leads: [],
+    filteredLeads: [],
+    search: '',
+    filterStage: '',
+    filterHealth: '',
+    sortField: 'company_name',
+    sortDir: 'asc',
+
+    async init() {
+      await this.loadLeads();
+      this.loading = false;
+    },
+
+    async loadLeads() {
+      try {
+        const res = await fetch('/api/v1/pipeline/leads');
+        const data = await res.json();
+        this.leads = data.leads || [];
+        this.filterLeads();
+      } catch (e) {
+        console.error('Failed to load leads:', e);
+      }
+    },
+
+    filterLeads() {
+      let result = [...this.leads];
+
+      // Search
+      if (this.search) {
+        const q = this.search.toLowerCase();
+        result = result.filter(l =>
+          (l.company_name || '').toLowerCase().includes(q)
+        );
+      }
+
+      // Stage filter
+      if (this.filterStage) {
+        result = result.filter(l => l.current_stage === this.filterStage);
+      }
+
+      // Health filter
+      if (this.filterHealth) {
+        result = result.filter(l => l.stage_health === this.filterHealth);
+      }
+
+      // Sort
+      result.sort((a, b) => {
+        let va = a[this.sortField] ?? '';
+        let vb = b[this.sortField] ?? '';
+        if (typeof va === 'string') va = va.toLowerCase();
+        if (typeof vb === 'string') vb = vb.toLowerCase();
+        if (va < vb) return this.sortDir === 'asc' ? -1 : 1;
+        if (va > vb) return this.sortDir === 'asc' ? 1 : -1;
+        return 0;
+      });
+
+      this.filteredLeads = result;
+      this.$nextTick(() => this.animateRows());
+    },
+
+    animateRows() {
+      const rows = document.querySelectorAll('#leads-table tbody tr');
+      rows.forEach((el, i) => {
+        el.style.opacity = '0';
+        el.style.animation = '';  // Reset animation
+        // Force reflow then apply
+        void el.offsetWidth;
+        el.style.animation = `slideUpFadeIn 0.3s ease ${i * 0.05}s forwards`;
+      });
+    },
+
+    sortBy(field) {
+      if (this.sortField === field) {
+        this.sortDir = this.sortDir === 'asc' ? 'desc' : 'asc';
+      } else {
+        this.sortField = field;
+        this.sortDir = 'asc';
+      }
+      this.filterLeads();
+    }
+  };
+}
+</script>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </template>
+</div>
+
+<script>
+function leadsApp() {
+  return {
+    loading: true,
+    leads: [],
+    filteredLeads: [],
+    search: '',
+    filterStage: '',
+    filterHealth: '',
+    sortField: 'company_name',
+    sortDir: 'asc',
+
+    async init() {
+      await this.loadLeads();
+      this.loading = false;
+    },
+
+    async loadLeads() {
+      try {
+        const res = await fetch('/api/v1/pipeline/leads');
+        const data = await res.json();
+        this.leads = data.leads || [];
+        this.filterLeads();
+      } catch (e) {
+        console.error('Failed to load leads:', e);
+      }
+    },
+
+    filterLeads() {
+      let result = [...this.leads];
+
+      // Search
+      if (this.search) {
+        const q = this.search.toLowerCase();
+        result = result.filter(l =>
+          (l.company_name || '').toLowerCase().includes(q)
+        );
+      }
+
+      // Stage filter
+      if (this.filterStage) {
+        result = result.filter(l => l.current_stage === this.filterStage);
+      }
+
+      // Health filter
+      if (this.filterHealth) {
+        result = result.filter(l => l.stage_health === this.filterHealth);
+      }
+
+      // Sort
+      result.sort((a, b) => {
+        let va = a[this.sortField] ?? '';
+        let vb = b[this.sortField] ?? '';
+        if (typeof va === 'string') va = va.toLowerCase();
+        if (typeof vb === 'string') vb = vb.toLowerCase();
+        if (va < vb) return this.sortDir === 'asc' ? -1 : 1;
+        if (va > vb) return this.sortDir === 'asc' ? 1 : -1;
+        return 0;
+      });
+
+      this.filteredLeads = result;
+    },
+
+    sortBy(field) {
+      if (this.sortField === field) {
+        this.sortDir = this.sortDir === 'asc' ? 'desc' : 'asc';
+      } else {
+        this.sortField = field;
+        this.sortDir = 'asc';
+      }
+      this.filterLeads();
+    }
+  };
+}
+</script>
+{% endblock %}

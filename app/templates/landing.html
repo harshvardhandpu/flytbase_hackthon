@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ScoutOS — AI-Powered BDR Operating System</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
+          animation: {
+            'float': 'float 6s ease-in-out infinite',
+            'glow': 'glow 2s ease-in-out infinite alternate',
+            'pulse-slow': 'pulse-slow 3s ease-in-out infinite',
+          },
+          keyframes: {
+            float: {
+              '0%, 100%': { transform: 'translateY(0px)' },
+              '50%': { transform: 'translateY(-10px)' },
+            },
+            glow: {
+              '0%': { boxShadow: '0 0 20px rgba(6, 182, 212, 0.1)' },
+              '100%': { boxShadow: '0 0 40px rgba(6, 182, 212, 0.3)' },
+            },
+            'pulse-slow': {
+              '0%, 100%': { opacity: '0.6' },
+              '50%': { opacity: '1' },
+            },
+          },
+        },
+      },
+    };
+  </script>
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    /* ── Base ─────────────────────────────────────────────── */
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body { font-family: 'Inter', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+
+    /* ── Orb animation ────────────────────────────────────── */
+    @keyframes orb-drift {
+      0% { transform: translate(0, 0) scale(1); }
+      25% { transform: translate(30px, -20px) scale(1.1); }
+      50% { transform: translate(-20px, 30px) scale(0.95); }
+      75% { transform: translate(20px, -30px) scale(1.05); }
+      100% { transform: translate(0, 0) scale(1); }
+    }
+    .orb {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(80px);
+      opacity: 0.15;
+      animation: orb-drift 15s ease-in-out infinite;
+    }
+    .orb:nth-child(1) {
+      width: 400px; height: 400px;
+      background: #06b6d4;
+      top: -100px; left: -100px;
+      animation-delay: 0s;
+    }
+    .orb:nth-child(2) {
+      width: 300px; height: 300px;
+      background: #8b5cf6;
+      top: 200px; right: -80px;
+      animation-delay: -5s;
+    }
+    .orb:nth-child(3) {
+      width: 350px; height: 350px;
+      background: #06b6d4;
+      bottom: -100px; right: 30%;
+      animation-delay: -10s;
+    }
+
+    /* ── Grid pattern ─────────────────────────────────────── */
+    .grid-pattern {
+      background-image:
+        linear-gradient(rgba(6, 182, 212, 0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(6, 182, 212, 0.03) 1px, transparent 1px);
+      background-size: 60px 60px;
+    }
+
+    /* ── Gradient text ────────────────────────────────────── */
+    .gradient-text {
+      background: linear-gradient(135deg, #06b6d4 0%, #8b5cf6 50%, #22d3ee 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    /* ── Hero glow line ───────────────────────────────────── */
+    .hero-glow {
+      position: absolute;
+      width: 1px;
+      height: 200px;
+      background: linear-gradient(to bottom, transparent, #06b6d4, transparent);
+      opacity: 0.3;
+    }
+
+    /* ── Feature card ─────────────────────────────────────── */
+    .feature-card {
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .feature-card:hover {
+      transform: translateY(-4px);
+    }
+    .feature-card:hover .feature-icon {
+      transform: scale(1.1);
+    }
+    .feature-icon {
+      transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    /* ── Agent pipeline line ──────────────────────────────── */
+    .pipeline-line {
+      position: absolute;
+      top: 50%;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, #06b6d4, #8b5cf6, #06b6d4);
+      opacity: 0.2;
+    }
+
+    /* ── Scrollbar ────────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+    /* ── Step connector ───────────────────────────────────── */
+    .step-connector {
+      position: absolute;
+      top: 2rem;
+      left: 2rem;
+      bottom: 0;
+      width: 2px;
+      background: linear-gradient(to bottom, #06b6d4, transparent);
+      opacity: 0.15;
+    }
+
+    /* ── Entrance animations ───────────────────────────────── */
+    .reveal {
+      opacity: 0;
+      transform: translateY(20px);
+      transition: all 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .reveal.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    /* ── Button press effect ──────────────────────────────── */
+    .btn-press {
+      transition: all 0.15s ease;
+    }
+    .btn-press:active {
+      transform: scale(0.97);
+    }
+
+    /* ── Bento grid ────────────────────────────────────────── */
+    .bento-card {
+      background: linear-gradient(135deg, rgba(30, 41, 59, 0.8), rgba(15, 23, 42, 0.9));
+      border: 1px solid rgba(51, 65, 85, 0.5);
+      border-radius: 1rem;
+      padding: 1.5rem;
+      transition: all 0.3s ease;
+    }
+    .bento-card:hover {
+      border-color: rgba(6, 182, 212, 0.3);
+      box-shadow: 0 0 30px rgba(6, 182, 212, 0.06);
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 antialiased">
+
+  <!-- ── Navigation ─────────────────────────────────────── -->
+  <nav class="fixed top-0 left-0 right-0 z-50 bg-slate-950/80 backdrop-blur-xl border-b border-slate-800/50">
+    <div class="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
+      <a href="/" class="flex items-center gap-2.5">
+        <span class="text-2xl">🔭</span>
+        <div>
+          <span class="text-base font-semibold text-slate-100">ScoutOS</span>
+          <span class="text-[10px] text-slate-500 tracking-wider uppercase block -mt-0.5">Mission Control</span>
+        </div>
+      </a>
+      <div class="flex items-center gap-4">
+        <a href="#features" class="text-sm text-slate-400 hover:text-slate-200 transition-colors">Features</a>
+        <a href="#how-it-works" class="text-sm text-slate-400 hover:text-slate-200 transition-colors">How It Works</a>
+        <a href="/dashboard"
+           class="inline-flex items-center gap-2 px-5 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-sm font-medium rounded-lg transition-all btn-press">
+          <span>Launch Dashboard</span>
+          <span>→</span>
+        </a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ── Hero ────────────────────────────────────────────── -->
+  <section class="relative min-h-screen flex items-center overflow-hidden">
+    <!-- Background orbs -->
+    <div class="orb"></div>
+    <div class="orb"></div>
+    <div class="orb"></div>
+
+    <!-- Grid pattern -->
+    <div class="absolute inset-0 grid-pattern"></div>
+
+    <!-- Hero glow line -->
+    <div class="hero-glow left-1/4 top-1/4"></div>
+    <div class="hero-glow right-1/3 bottom-1/3" style="height: 150px; background: linear-gradient(to bottom, transparent, #8b5cf6, transparent);"></div>
+
+    <div class="relative max-w-7xl mx-auto px-6 py-32 text-center">
+      <!-- Badge -->
+      <div class="inline-flex items-center gap-2 px-4 py-1.5 bg-cyan-500/10 border border-cyan-500/20 rounded-full text-xs text-cyan-400 mb-8">
+        <span class="w-1.5 h-1.5 rounded-full bg-cyan-500 animate-pulse"></span>
+        FlytBase Hackathon 2026
+      </div>
+
+      <!-- Main heading -->
+      <h1 class="text-5xl sm:text-6xl lg:text-7xl font-bold tracking-tight leading-tight mb-6">
+        <span class="gradient-text">AI-Powered BDR</span>
+        <br />
+        <span class="text-slate-100">Operating System</span>
+      </h1>
+
+      <!-- Subheading -->
+      <p class="max-w-2xl mx-auto text-lg sm:text-xl text-slate-400 leading-relaxed mb-10">
+        From lead research to meeting scheduling — a multi-agent platform that
+        automates your entire BDR workflow with research intelligence,
+        qualification scoring, and smart outreach.
+      </p>
+
+      <!-- CTA buttons -->
+      <div class="flex flex-wrap items-center justify-center gap-4">
+        <a href="/dashboard"
+           class="inline-flex items-center gap-2.5 px-8 py-3.5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-semibold rounded-xl transition-all btn-press shadow-lg shadow-cyan-500/10">
+          <span>🚀</span>
+          <span>Launch Mission Control</span>
+          <span>→</span>
+        </a>
+        <a href="#how-it-works"
+           class="inline-flex items-center gap-2.5 px-8 py-3.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium rounded-xl border border-slate-700 transition-all btn-press">
+          <span>▶</span>
+          <span>See How It Works</span>
+        </a>
+      </div>
+
+      <!-- Stats row -->
+      <div class="mt-16 grid grid-cols-2 md:grid-cols-4 gap-6 max-w-3xl mx-auto" x-data="{ visible: false }" x-init="setTimeout(() => visible = true, 500)">
+        <div class="text-center">
+          <div class="text-3xl font-bold gradient-text" x-show="visible" x-text="5"></div>
+          <div class="text-3xl font-bold gradient-text" x-show="!visible">5</div>
+          <div class="text-xs text-slate-500 mt-1 uppercase tracking-wider">AI Agents</div>
+        </div>
+        <div class="text-center">
+          <div class="text-3xl font-bold gradient-text">100+</div>
+          <div class="text-xs text-slate-500 mt-1 uppercase tracking-wider">Leads/Hour</div>
+        </div>
+        <div class="text-center">
+          <div class="text-3xl font-bold gradient-text">60%</div>
+          <div class="text-xs text-slate-500 mt-1 uppercase tracking-wider">Time Saved</div>
+        </div>
+        <div class="text-center">
+          <div class="text-3xl font-bold gradient-text">24/7</div>
+          <div class="text-xs text-slate-500 mt-1 uppercase tracking-wider">Operation</div>
+        </div>
+      </div>
+
+      <!-- Scroll indicator -->
+      <div class="mt-16 flex flex-col items-center gap-2 text-xs text-slate-600">
+        <span>Scroll to explore</span>
+        <svg class="w-4 h-4 animate-bounce" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3"/>
+        </svg>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Features ────────────────────────────────────────── -->
+  <section id="features" class="relative py-24 bg-slate-900/50">
+    <div class="max-w-7xl mx-auto px-6">
+      <!-- Section header -->
+      <div class="text-center mb-16">
+        <span class="text-xs text-cyan-400 uppercase tracking-[0.2em] font-medium">Five Specialized Agents</span>
+        <h2 class="text-3xl sm:text-4xl font-bold text-slate-100 mt-3 mb-4">
+          From Research to Revenue
+        </h2>
+        <p class="max-w-xl mx-auto text-slate-400 text-sm leading-relaxed">
+          Each agent specializes in a critical BDR function, working together
+          to transform raw prospect data into pipeline opportunities.
+        </p>
+      </div>
+
+      <!-- Agent cards grid -->
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <!-- Research Agent -->
+        <div class="bento-card feature-card col-span-1">
+          <div class="flex items-center gap-3 mb-4">
+            <div class="feature-icon w-10 h-10 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-lg">
+              🔍
+            </div>
+            <div>
+              <h3 class="text-sm font-semibold text-slate-200">Research Agent</h3>
+              <span class="text-[10px] text-blue-400">Phase 2 · Completed</span>
+            </div>
+          </div>
+          <p class="text-xs text-slate-400 leading-relaxed mb-3">
+            Deep company research with simulated web search and content extraction.
+            Generates structured BDR-focused reports with business signals,
+            technology stack analysis, and pain point detection.
+          </p>
+          <div class="flex items-center gap-1.5 text-[10px] text-slate-500">
+            <span class="px-2 py-0.5 rounded bg-slate-800">Company Profile</span>
+            <span class="px-2 py-0.5 rounded bg-slate-800">Pain Points</span>
+            <span class="px-2 py-0.5 rounded bg-slate-800">Tech Signals</span>
+          </div>
+        </div>
+
+        <!-- Qualification Agent -->
+        <div class="bento-card feature-card col-span-1">
+          <div class="flex items-center gap-3 mb-4">
+            <div class="feature-icon w-10 h-10 rounded-lg bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-lg">
+              📊
+            </div>
+            <div>
+              <h3 class="text-sm font-semibold text-slate-200">Qualification Agent</h3>
+              <span class="text-[10px] text-purple-400">Phase 3 · Completed</span>
+            </div>
+          </div>
+          <p class="text-xs text-slate-400 leading-relaxed mb-3">
+            Hybrid scoring engine combining deterministic ICP rules with AI evaluation.
+            Produces explainable scores (overall, ICP match, buying signals, company fit)
+            with priority classification: HOT, WARM, or COLD.
+          </p>
+          <div class="flex items-center gap-1.5 text-[10px] text-slate-500">
+            <span class="px-2 py-0.5 rounded bg-slate-800">0–100 Score</span>
+            <span class="px-2 py-0.5 rounded bg-slate-800">ICP Rules</span>
+            <span class="px-2 py-0.5 rounded bg-slate-800">Explainable</span>
+          </div>
+        </div>
+
+        <!-- Outreach Agent -->
+        <div class="bento-card feature-card col-span-1">
+          <div class="flex items-center gap-3 mb-4">
+            <div class="feature-icon w-10 h-10 rounded-lg bg-green-500/10 border border-green-500/20 flex items-center justify-center text-lg">
+              ✉️
+            </div>
+            <div>
+              <h3 class="text-sm font-semibold text-slate-200">Outreach Agent</h3>
+              <span class="text-[10px] text-green-400">Phase 4 · Completed</span>
+            </div>
+          </div>
+          <p class="text-xs text-slate-400 leading-relaxed mb-3">
+            Generates personalized outreach strategies with company hooks and
+            pain-point-driven email drafts. Human-in-the-loop approval before
+            any message is sent. Full audit trail of approvals.
+          </p>
+          <div class="flex items-center gap-1.5 text-[10px] text-slate-500">
+            <span class="px-2 py-0.5 rounded bg-slate-800">Draft Generation</span>
+            <span class="px-2 py-0.5 rounded bg-slate-800">Human Approval</span>
+          </div>
+        </div>
+
+        <!-- Inbound Agent -->
+        <div class="bento-card feature-card col-span-1 lg:col-span-1">
+          <div class="flex items-center gap-3 mb-4">
+            <div class="feature-icon w-10 h-10 rounded-lg bg-orange-500/10 border border-orange-500/20 flex items-center justify-center text-lg">
+              📨
+            </div>
+            <div>
+              <h3 class="text-sm font-semibold text-slate-200">Inbound Agent</h3>
+              <span class="text-[10px] text-orange-400">Phase 5 · Completed</span>
+            </div>
+          </div>
+          <p class="text-xs text-slate-400 leading-relaxed mb-3">
+            Intelligent message triage with intent classification, sentiment analysis,
+            and urgency scoring. Generates suggested replies and lead actions.
+            Approve or reject replies inline.
+          </p>
+          <div class="flex items-center gap-1.5 text-[10px] text-slate-500">
+            <span class="px-2 py-0.5 rounded bg-slate-800">Intent Detection</span>
+            <span class="px-2 py-0.5 rounded bg-slate-800">Sentiment</span>
+          </div>
+        </div>
+
+        <!-- Pipeline Agent (spans 2 cols on lg) -->
+        <div class="bento-card feature-card col-span-1 lg:col-span-2">
+          <div class="flex items-center gap-3 mb-4">
+            <div class="feature-icon w-10 h-10 rounded-lg bg-teal-500/10 border border-teal-500/20 flex items-center justify-center text-lg">
+              🚀
+            </div>
+            <div>
+              <h3 class="text-sm font-semibold text-slate-200">Pipeline Agent</h3>
+              <span class="text-[10px] text-teal-400">Phase 5 · Completed</span>
+            </div>
+          </div>
+          <p class="text-xs text-slate-400 leading-relaxed mb-3">
+            Pipeline intelligence engine that tracks leads through 8 stages from discovery to close.
+            Health scoring, stagnation detection, and next-best-action recommendations.
+            Drag-and-drop Kanban for manual stage advancement.
+          </p>
+          <div class="flex items-center gap-1.5 text-[10px] text-slate-500">
+            <span class="px-2 py-0.5 rounded bg-slate-800">8 Stages</span>
+            <span class="px-2 py-0.5 rounded bg-slate-800">Health Scoring</span>
+            <span class="px-2 py-0.5 rounded bg-slate-800">Stagnation Detection</span>
+            <span class="px-2 py-0.5 rounded bg-slate-800">Next Actions</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── How It Works ─────────────────────────────────────── -->
+  <section id="how-it-works" class="relative py-24">
+    <div class="max-w-7xl mx-auto px-6">
+      <div class="text-center mb-16">
+        <span class="text-xs text-cyan-400 uppercase tracking-[0.2em] font-medium">End-to-End Flow</span>
+        <h2 class="text-3xl sm:text-4xl font-bold text-slate-100 mt-3 mb-4">
+          One Company. Five Agents. Minutes.
+        </h2>
+        <p class="max-w-xl mx-auto text-slate-400 text-sm leading-relaxed">
+          Enter a company name and watch the agent pipeline transform raw data
+          into actionable BDR intelligence.
+        </p>
+      </div>
+
+      <!-- Flow steps -->
+      <div class="grid grid-cols-1 md:grid-cols-5 gap-4 relative">
+        <!-- Step 1 -->
+        <div class="bento-card text-center relative">
+          <div class="w-12 h-12 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-xl mx-auto mb-3">
+            🔍
+          </div>
+          <div class="text-xs text-blue-400 font-semibold mb-1">Step 1</div>
+          <h3 class="text-sm font-semibold text-slate-200 mb-1">Research</h3>
+          <p class="text-[10px] text-slate-500 leading-relaxed">Company profiling, tech stack analysis, pain point detection</p>
+          <div class="text-[10px] text-blue-500/60 mt-2">~15s</div>
+          <!-- Arrow connector -->
+          <div class="hidden md:block absolute top-1/2 -right-2 text-slate-600 text-lg">→</div>
+        </div>
+
+        <!-- Step 2 -->
+        <div class="bento-card text-center relative">
+          <div class="w-12 h-12 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-xl mx-auto mb-3">
+            📊
+          </div>
+          <div class="text-xs text-purple-400 font-semibold mb-1">Step 2</div>
+          <h3 class="text-sm font-semibold text-slate-200 mb-1">Qualify</h3>
+          <p class="text-[10px] text-slate-500 leading-relaxed">Hybrid scoring, ICP matching, priority assignment</p>
+          <div class="text-[10px] text-purple-500/60 mt-2">~10s</div>
+          <div class="hidden md:block absolute top-1/2 -right-2 text-slate-600 text-lg">→</div>
+        </div>
+
+        <!-- Step 3 -->
+        <div class="bento-card text-center relative">
+          <div class="w-12 h-12 rounded-xl bg-green-500/10 border border-green-500/20 flex items-center justify-center text-xl mx-auto mb-3">
+            ✉️
+          </div>
+          <div class="text-xs text-green-400 font-semibold mb-1">Step 3</div>
+          <h3 class="text-sm font-semibold text-slate-200 mb-1">Outreach</h3>
+          <p class="text-[10px] text-slate-500 leading-relaxed">Strategy, personalization, draft generation</p>
+          <div class="text-[10px] text-green-500/60 mt-2">~10s</div>
+          <div class="hidden md:block absolute top-1/2 -right-2 text-slate-600 text-lg">→</div>
+        </div>
+
+        <!-- Step 4 -->
+        <div class="bento-card text-center relative">
+          <div class="w-12 h-12 rounded-xl bg-orange-500/10 border border-orange-500/20 flex items-center justify-center text-xl mx-auto mb-3">
+            📨
+          </div>
+          <div class="text-xs text-orange-400 font-semibold mb-1">Step 4</div>
+          <h3 class="text-sm font-semibold text-slate-200 mb-1">Inbound</h3>
+          <p class="text-[10px] text-slate-500 leading-relaxed">Message triage, sentiment analysis, reply generation</p>
+          <div class="text-[10px] text-orange-500/60 mt-2">~5s</div>
+          <div class="hidden md:block absolute top-1/2 -right-2 text-slate-600 text-lg">→</div>
+        </div>
+
+        <!-- Step 5 -->
+        <div class="bento-card text-center">
+          <div class="w-12 h-12 rounded-xl bg-teal-500/10 border border-teal-500/20 flex items-center justify-center text-xl mx-auto mb-3">
+            🚀
+          </div>
+          <div class="text-xs text-teal-400 font-semibold mb-1">Step 5</div>
+          <h3 class="text-sm font-semibold text-slate-200 mb-1">Pipeline</h3>
+          <p class="text-[10px] text-slate-500 leading-relaxed">Stage tracking, health scoring, next actions</p>
+          <div class="text-[10px] text-teal-500/60 mt-2">Continuous</div>
+        </div>
+      </div>
+
+      <!-- Total time -->
+      <div class="text-center mt-8">
+        <div class="inline-flex items-center gap-2 px-4 py-2 bg-slate-800/50 rounded-lg border border-slate-700/50">
+          <span class="text-sm text-slate-400">Total processing time per lead:</span>
+          <span class="text-lg font-bold gradient-text">~40 seconds</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Architecture Highlight ───────────────────────────── -->
+  <section class="relative py-24 bg-slate-900/50">
+    <div class="max-w-7xl mx-auto px-6">
+      <div class="text-center mb-12">
+        <span class="text-xs text-cyan-400 uppercase tracking-[0.2em] font-medium">Clean Architecture</span>
+        <h2 class="text-3xl sm:text-4xl font-bold text-slate-100 mt-3 mb-4">
+          Provider-Neutral & Extensible
+        </h2>
+        <p class="max-w-xl mx-auto text-slate-400 text-sm leading-relaxed">
+          Every agent uses the same AI provider abstraction, tool system, and
+          task manager. Swap between OpenAI, Anthropic, or local models
+          without changing agent logic.
+        </p>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="bento-card">
+          <div class="text-2xl mb-3">🧩</div>
+          <h3 class="text-sm font-semibold text-slate-200 mb-2">Provider Abstraction</h3>
+          <p class="text-xs text-slate-400 leading-relaxed">
+            All LLM calls go through a unified <code class="text-[10px] text-cyan-400 bg-slate-800 px-1 rounded">AIProvider</code> interface.
+            Swap providers with a config change.
+          </p>
+        </div>
+        <div class="bento-card">
+          <div class="text-2xl mb-3">🔧</div>
+          <h3 class="text-sm font-semibold text-slate-200 mb-2">Tool System</h3>
+          <p class="text-xs text-slate-400 leading-relaxed">
+            Every capability is a tool (<code class="text-[10px] text-cyan-400 bg-slate-800 px-1 rounded">web_search</code>,
+            <code class="text-[10px] text-cyan-400 bg-slate-800 px-1 rounded">content_extractor</code>) that agents call by name.
+          </p>
+        </div>
+        <div class="bento-card">
+          <div class="text-2xl mb-3">📋</div>
+          <h3 class="text-sm font-semibold text-slate-200 mb-2">Task Management</h3>
+          <p class="text-xs text-slate-400 leading-relaxed">
+            Every execution is tracked: start, steps, completion, and errors.
+            Full audit logs with structured data.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Final CTA ────────────────────────────────────────── -->
+  <section class="relative py-24 overflow-hidden">
+    <div class="absolute inset-0">
+      <div class="orb" style="width: 500px; height: 500px; top: -200px; left: 50%; transform: translateX(-50%);"></div>
+    </div>
+    <div class="relative max-w-3xl mx-auto px-6 text-center">
+      <div class="inline-flex items-center gap-2 px-4 py-1.5 bg-cyan-500/10 border border-cyan-500/20 rounded-full text-xs text-cyan-400 mb-6">
+        Ready to automate?
+      </div>
+      <h2 class="text-3xl sm:text-5xl font-bold text-slate-100 mb-6">
+        Your first lead is<br/>
+        <span class="gradient-text">one click away</span>
+      </h2>
+      <p class="text-slate-400 text-sm max-w-md mx-auto mb-8">
+        Explore the Mission Control dashboard to see real research data,
+        qualification scores, outreach drafts, and pipeline intelligence —
+        all generated by the agent platform.
+      </p>
+      <a href="/dashboard"
+         class="inline-flex items-center gap-3 px-10 py-4 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-semibold rounded-xl transition-all btn-press shadow-lg shadow-cyan-500/20 text-lg">
+        <span>🚀</span>
+        <span>Launch Mission Control</span>
+        <span>→</span>
+      </a>
+      <p class="text-xs text-slate-600 mt-4">No signup required · Demo data pre-loaded</p>
+    </div>
+  </section>
+
+  <!-- ── Footer ───────────────────────────────────────────── -->
+  <footer class="border-t border-slate-800 bg-slate-950">
+    <div class="max-w-7xl mx-auto px-6 py-8 flex flex-col sm:flex-row items-center justify-between gap-4">
+      <div class="flex items-center gap-2 text-sm text-slate-500">
+        <span>🔭</span>
+        <span>ScoutOS — Built for FlytBase Hackathon 2026</span>
+      </div>
+      <div class="flex items-center gap-4 text-xs text-slate-600">
+        <a href="/dashboard" class="hover:text-slate-400 transition-colors">Mission Control</a>
+        <a href="#features" class="hover:text-slate-400 transition-colors">Features</a>
+        <a href="#how-it-works" class="hover:text-slate-400 transition-colors">How It Works</a>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Alpine.js for interactivity -->
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+</body>
+</html>
