@@ -169,10 +169,46 @@ docs/                 → Architecture, agents, demo, submission documentation
 
 ---
 
+## Live Demo
+
+> *Deployment URL placeholder — set after deploying to Railway.*
+
+Once deployed:
+```bash
+# Health check
+curl https://<your-railway-url>.up.railway.app/health
+
+# Open demo
+# https://<your-railway-url>.up.railway.app/demo
+```
+
+## Deployment
+
+Deploy ScoutOS to Railway for a public demo:
+
+```bash
+# 1. Push to GitHub
+# 2. Create Railway project from your GitHub repo
+# 3. Add PostgreSQL plugin (DATABASE_URL auto-set)
+# 4. Set env vars (AI_PROVIDER, ANTHROPIC_BASE_URL, etc.)
+# 5. Railway auto-deploys — done!
+```
+
+**Local testing with Docker:**
+```bash
+docker compose up --build
+# → http://localhost:8000
+```
+
+See [Deployment Guide](docs/DEPLOYMENT.md) for complete instructions.
+
+---
+
 ## Documentation
 
 | Document | Purpose |
 |----------|---------|
+| [Deployment Guide](docs/DEPLOYMENT.md) | Railway deployment instructions and environment setup |
 | [Hackathon Submission](docs/HACKATHON_SUBMISSION.md) | Full submission package with architecture, demo walkthrough, differentiators |
 | [Demo Scenario](docs/DEMO_SCENARIO.md) | 3-minute judge walkthrough with timed table and talking points |
 | [Architecture](docs/ARCHITECTURE.md) | System design, layers, patterns |

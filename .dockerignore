@@ -1,0 +1,31 @@
+# ── ScoutOS — Docker ignore ─────────────────────────────────────────
+# Prevent secrets and build artifacts from leaking into Docker images.
+# ──────────────────────────────────────────────────────────────────────
+
+# Environment
+.env
+.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Version control
+.git/
+.gitignore
+.gitattributes
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+*.log
+*.sqlite3
