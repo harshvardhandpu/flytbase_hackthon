@@ -10,6 +10,9 @@
 # ──────────────────────────────────────────────────────────────────────
 set -e
 
+APP_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export PYTHONPATH="${APP_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
+
 PORT="${PORT:-8000}"
 APP_ENV="${APP_ENV:-production}"
 

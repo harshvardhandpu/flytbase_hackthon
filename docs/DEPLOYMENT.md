@@ -48,6 +48,7 @@ Container Start
     │
     ├── start.sh runs
     │   │
+    │   ├── exports the project root as PYTHONPATH
     │   ├── alembic upgrade head    (creates/migrates tables)
     │   ├── seed_demo_data.py       (seeds 5 demo companies)
     │   └── uvicorn app.main:app    (serves on $PORT)
@@ -181,7 +182,9 @@ alembic upgrade head
 python scripts/seed_demo_data.py
 ```
 
-The `start.sh` script runs both commands automatically on container start, so no manual migration is needed.
+The `start.sh` script exports the project root as `PYTHONPATH` before running both
+commands. This lets the file-based seed command import the `app` package in the
+Docker container, so no manual migration or seed command is needed.
 
 ### Alembic Configuration
 
