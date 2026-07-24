@@ -17,7 +17,7 @@ from app.core.task_manager import TaskManager
 from app.db import models
 from app.db.session import SessionLocal
 from app.providers.manager import ProviderManager
-from app.tools import SimulatedContentExtractorTool, SimulatedWebSearchTool, ToolManager
+from app.tools import ToolManager, WebContentExtractorTool, WebSearchTool
 
 router = APIRouter(prefix="/api/v1", tags=["research"])
 
@@ -74,7 +74,10 @@ def get_db() -> Session:
 def build_runtime(db: Session) -> AgentRuntime:
     settings = get_settings()
     provider = ProviderManager(settings).resolve()
-    tools = ToolManager([SimulatedWebSearchTool(), SimulatedContentExtractorTool()])
+    tools = ToolManager([
+        WebSearchTool(),
+        WebContentExtractorTool(),
+    ])
     tm = TaskManager(db)
     registry = build_default_registry(ai_provider=provider, tool_manager=tools, task_manager=tm)
     return AgentRuntime(registry)
@@ -1633,6 +1636,92 @@ async def get_task_logs(
             }
             for log in logs
         ],
+    ).model_dump()
+
+
+# ── Lead detail endpoint ──────────────────────────────────────────────
+
+
+class LeadDetailResponse(BaseModel):
+    lead_id: str
+    company_name: str = ""
+    domain: str = ""
+    industry: str = ""
+    employee_count: int | None = None
+    location: str = ""
+    description: str = ""
+    business_signals: list[str] = []
+    technology_signals: list[str] = []
+    pain_points: list[str] = []
+    flytbase_relevance: str = ""
+    current_stage: str = "new"
+    stage_health: str = "unknown"
+    days_in_stage: int = 0
+    overall_score: int | None = None
+    priority: str | None = None
+
+
+@router.get("/leads/{lead_id}/detail", response_model=LeadDetailResponse)
+async def get_lead_detail(
+    lead_id: str,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Get full lead detail including company profile and pipeline status."""
+    try:
+        uid = uuid.UUID(lead_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid lead_id format")
+
+    lead = db.query(models.Lead).filter(models.Lead.id == uid).first()
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+    # Company data
+    company = db.query(models.Company).filter(
+        models.Company.id == lead.company_id
+    ).first() if lead.company_id else None
+
+    # Pipeline status
+    pipeline_status = db.query(models.PipelineStatus).filter(
+        models.PipelineStatus.lead_id == uid,
+        models.PipelineStatus.is_current == True,  # noqa: E712
+    ).first()
+
+    days_in_stage = 0
+    if pipeline_status and pipeline_status.entered_at:
+        days_in_stage = (
+            datetime.now(timezone.utc) - pipeline_status.entered_at
+        ).days
+    elif lead.created_at:
+        days_in_stage = (
+            datetime.now(timezone.utc) - lead.created_at
+        ).days
+
+    current_stage = lead.status or "new"
+    stage_health = _compute_stage_health(current_stage, days_in_stage)
+
+    profile = company.profile_data or {} if company else {}
+
+    # Location is stored in profile_data, not a top-level column
+    location = profile.get("location", "") or ""
+
+    return LeadDetailResponse(
+        lead_id=str(lead.id),
+        company_name=company.name if company else "",
+        domain=company.domain if company else "",
+        industry=company.industry or profile.get("industry", ""),
+        employee_count=company.employee_count or profile.get("employee_count"),
+        location=location,
+        description=profile.get("description", ""),
+        business_signals=profile.get("business_signals", []),
+        technology_signals=profile.get("technology_signals", []),
+        pain_points=profile.get("pain_points", []),
+        flytbase_relevance=profile.get("flytbase_relevance", ""),
+        current_stage=current_stage,
+        stage_health=stage_health,
+        days_in_stage=days_in_stage,
+        overall_score=lead.score,
+        priority=_score_to_priority(lead.score),
     ).model_dump()
 
 

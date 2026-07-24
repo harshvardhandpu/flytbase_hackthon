@@ -43,6 +43,11 @@
         <a href="/leads" class="text-sm text-slate-500 hover:text-slate-300 transition-colors">← Leads</a>
         <span class="text-slate-600">/</span>
         <h2 class="text-xl font-semibold text-slate-100" x-text="company.name || 'Unknown Company'"></h2>
+        <!-- Demo indicator -->
+        <span x-show="company.company_name === 'SkyGrid Inc.'"
+              class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20">
+          🎯 Demo Account
+        </span>
         <span class="text-xs bg-slate-800 px-2 py-1 rounded-full text-slate-400 border border-slate-700 capitalize" x-text="company.current_stage?.replace('_', ' ') || 'new'"></span>
       </div>
 
@@ -346,19 +351,34 @@ function leadDetailApp(leadId) {
 
     async init() {
       try {
-        // Load leads list to find this lead
-        const res = await fetch('/api/v1/pipeline/leads');
-        const data = await res.json();
-        const leads = data.leads || [];
-        const lead = leads.find(l => l.lead_id === leadId);
-
-        if (!lead) {
+        // Load lead detail with company profile from new endpoint
+        const detailRes = await fetch('/api/v1/leads/' + leadId + '/detail');
+        if (!detailRes.ok) {
           this.error = 'Lead not found.';
           this.loading = false;
           return;
         }
+        const detail = await detailRes.json();
 
-        this.company = lead;
+        // Map the API response to template-expected fields
+        this.company = {
+          name: detail.company_name,
+          company_name: detail.company_name,
+          industry: detail.industry,
+          employee_count: detail.employee_count,
+          location: detail.location,
+          domain: detail.domain,
+          description: detail.description,
+          business_signals: detail.business_signals || [],
+          technology_signals: detail.technology_signals || [],
+          pain_points: detail.pain_points || [],
+          flytbase_relevance: detail.flytbase_relevance,
+          current_stage: detail.current_stage,
+          stage_health: detail.stage_health,
+          days_in_stage: detail.days_in_stage,
+          overall_score: detail.overall_score,
+          priority: detail.priority,
+        };
         this.loading = false;
 
         // Try to load qualification data from agent tasks

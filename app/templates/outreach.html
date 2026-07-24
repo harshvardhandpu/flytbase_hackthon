@@ -52,11 +52,15 @@
       <div class="space-y-3">
         <template x-for="draft in drafts" :key="draft.task_id">
           <div class="bg-slate-800 rounded-xl border border-slate-700/50 p-5 hover:border-slate-600 transition-colors cursor-pointer"
-               @click="openDetail(draft)">
-            <div class="flex items-start justify-between gap-4">
+               @click="openDetail(draft)">              <div class="flex items-start justify-between gap-4">
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-2 mb-1">
                   <span class="text-sm font-medium text-slate-200" x-text="draft.company_name || 'Unknown'"></span>
+                  <!-- Demo indicator -->
+                  <span x-show="draft.company_name === 'SkyGrid Inc.'"
+                        class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                    🎯 Demo
+                  </span>
                   <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium"
                         :class="{
                           'bg-yellow-900/30 text-yellow-400 border border-yellow-800': draft.status === 'pending_approval',

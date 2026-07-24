@@ -17,5 +17,12 @@ def test_anthropic_compatible_credentials_select_freemodel() -> None:
 
 
 def test_missing_provider_is_explicitly_unavailable() -> None:
-    settings = Settings()
+    # Explicitly clear all provider-related fields so .env values
+    # don't leak into the test (Pydantic BaseSettings auto-loads from .env).
+    settings = Settings(
+        ai_provider=None,
+        anthropic_base_url=None,
+        anthropic_auth_token=None,
+        openai_api_key=None,
+    )
     assert ProviderManager(settings).resolve().name == "unavailable"

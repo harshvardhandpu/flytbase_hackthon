@@ -112,6 +112,8 @@ class ResearchReport(TimestampMixin, Base):
     summary: Mapped[str] = mapped_column(Text, nullable=False)
     findings: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
     sources: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list)
+    citations: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list)
+    intelligence_metadata: Mapped[dict[str, Any] | None] = mapped_column(JSONB, default=None)
     provider: Mapped[str | None] = mapped_column(String(100))
     model: Mapped[str | None] = mapped_column(String(255))
 

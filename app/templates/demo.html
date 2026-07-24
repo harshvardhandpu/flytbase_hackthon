@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ScoutOS — Demo Scenario</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
+          animation: {
+            'float': 'float 6s ease-in-out infinite',
+            'glow': 'glow 2s ease-in-out infinite alternate',
+          },
+          keyframes: {
+            float: {
+              '0%, 100%': { transform: 'translateY(0px)' },
+              '50%': { transform: 'translateY(-10px)' },
+            },
+            glow: {
+              '0%': { boxShadow: '0 0 20px rgba(6, 182, 212, 0.1)' },
+              '100%': { boxShadow: '0 0 40px rgba(6, 182, 212, 0.3)' },
+            },
+          },
+        },
+      },
+    };
+  </script>
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Inter', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+
+    @keyframes orb-drift {
+      0% { transform: translate(0, 0) scale(1); }
+      25% { transform: translate(30px, -20px) scale(1.1); }
+      50% { transform: translate(-20px, 30px) scale(0.95); }
+      75% { transform: translate(20px, -30px) scale(1.05); }
+      100% { transform: translate(0, 0) scale(1); }
+    }
+    .orb {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(80px);
+      opacity: 0.15;
+      animation: orb-drift 15s ease-in-out infinite;
+    }
+    .orb:nth-child(1) { width: 400px; height: 400px; background: #06b6d4; top: -100px; left: -100px; }
+    .orb:nth-child(2) { width: 300px; height: 300px; background: #8b5cf6; top: 200px; right: -80px; animation-delay: -5s; }
+    .orb:nth-child(3) { width: 350px; height: 350px; background: #06b6d4; bottom: -100px; right: 30%; animation-delay: -10s; }
+
+    .grid-pattern {
+      background-image:
+        linear-gradient(rgba(6, 182, 212, 0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(6, 182, 212, 0.03) 1px, transparent 1px);
+      background-size: 60px 60px;
+    }
+
+    .gradient-text {
+      background: linear-gradient(135deg, #06b6d4 0%, #8b5cf6 50%, #22d3ee 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .timeline-line {
+      background: linear-gradient(to bottom, #06b6d4, transparent);
+    }
+
+    @keyframes pulse-soft {
+      0%, 100% { opacity: 0.6; }
+      50% { opacity: 1; }
+    }
+    .pulse-soft { animation: pulse-soft 2s ease-in-out infinite; }
+
+    .btn-press:active { transform: scale(0.97); }
+    .btn-press { transition: all 0.15s ease; }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 antialiased min-h-screen">
+
+  <!-- Navigation -->
+  <nav class="fixed top-0 left-0 right-0 z-50 bg-slate-950/80 backdrop-blur-xl border-b border-slate-800/50">
+    <div class="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
+      <a href="/" class="flex items-center gap-2.5">
+        <span class="text-2xl">🔭</span>
+        <div>
+          <span class="text-base font-semibold text-slate-100">ScoutOS</span>
+          <span class="text-[10px] text-slate-500 tracking-wider uppercase block -mt-0.5">Demo Scenario</span>
+        </div>
+      </a>
+      <a href="/landing"
+         class="text-sm text-slate-400 hover:text-slate-200 transition-colors">
+        ← Back to landing
+      </a>
+    </div>
+  </nav>
+
+  <!-- Hero Section -->
+  <section class="relative min-h-screen flex items-center overflow-hidden pt-16">
+    <div class="orb"></div>
+    <div class="orb"></div>
+    <div class="orb"></div>
+    <div class="absolute inset-0 grid-pattern"></div>
+
+    <div class="relative max-w-5xl mx-auto px-6 py-20">
+      <!-- Badge -->
+      <div class="inline-flex items-center gap-2 px-4 py-1.5 bg-cyan-500/10 border border-cyan-500/20 rounded-full text-xs text-cyan-400 mb-8 animate-pulse">
+        <span class="w-1.5 h-1.5 rounded-full bg-cyan-500"></span>
+        FlytBase Hackathon 2026 — Demo Scenario
+      </div>
+
+      <!-- Title -->
+      <h1 class="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight leading-tight mb-4">
+        <span class="text-slate-100">ScoutOS</span>
+        <br />
+        <span class="gradient-text">3-Minute Judge Demo</span>
+      </h1>
+      <p class="max-w-2xl text-lg sm:text-xl text-slate-400 leading-relaxed mb-8">
+        Watch five AI agents transform a prospect from raw research to a scheduled meeting —
+        all in under 60 seconds of processing time.
+      </p>
+
+      <!-- Company spotlight -->
+      <div class="inline-flex items-center gap-3 px-5 py-3 bg-slate-800/50 rounded-xl border border-slate-700/50 mb-10">
+        <span class="text-2xl">🏢</span>
+        <div>
+          <span class="text-sm font-semibold text-slate-200">SkyGrid Inc.</span>
+          <span class="text-xs text-slate-500 block">Enterprise drone fleet management · $40M Series B · EU expansion</span>
+        </div>
+      </div>
+
+      <!-- Launch button -->
+      <div x-data="{ seeding: false, status: '' }">
+        <button @click="launchDemo($el)" x-init="window.launchDemo = async function(btn) {
+          seeding = true;
+          status = 'Seeding demo data...';
+          try {
+            const res = await fetch('/demo/seed', { method: 'POST' });
+            const data = await res.json();
+            status = data.status === 'ok' ? '✅ Data ready! Redirecting...' : '⚠️ ' + data.message;
+            setTimeout(() => { window.location.href = data.redirect || '/dashboard'; }, 800);
+          } catch(e) {
+            status = 'Error: ' + e.message;
+            setTimeout(() => { window.location.href = '/dashboard'; }, 1500);
+          }
+        }"
+                class="w-full sm:w-auto inline-flex items-center justify-center gap-3 px-10 py-5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold rounded-xl transition-all btn-press shadow-lg shadow-cyan-500/20 text-lg"
+                :disabled="seeding">
+          <template x-if="!seeding">
+            <>
+              <span>🚀</span>
+              <span>Launch Demo Mission</span>
+              <span>→</span>
+            </>
+          </template>
+          <template x-if="seeding">
+            <>
+              <span class="w-6 h-6 border-3 border-white border-t-transparent rounded-full animate-spin inline-block"></span>
+              <span x-text="status">Seeding data...</span>
+            </>
+          </template>
+        </button>
+        <p class="text-xs text-slate-600 mt-3">No database setup required. Demo data is seeded automatically.</p>
+      </div>
+
+      <!-- Agent Pipeline Flow -->
+      <div class="mt-20 grid grid-cols-1 md:grid-cols-5 gap-4">
+        <div class="bg-slate-800/50 rounded-xl p-5 border border-slate-700/50 text-center hover:border-blue-500/30 transition-colors">
+          <div class="text-3xl mb-2">🔍</div>
+          <div class="text-xs text-blue-400 font-semibold mb-1">Step 1</div>
+          <div class="text-sm font-semibold text-slate-200">Research</div>
+          <div class="text-[10px] text-slate-500 mt-1">Company profiling,<br/>tech analysis</div>
+        </div>
+        <div class="bg-slate-800/50 rounded-xl p-5 border border-slate-700/50 text-center hover:border-purple-500/30 transition-colors">
+          <div class="text-3xl mb-2">📊</div>
+          <div class="text-xs text-purple-400 font-semibold mb-1">Step 2</div>
+          <div class="text-sm font-semibold text-slate-200">Qualify</div>
+          <div class="text-[10px] text-slate-500 mt-1">Scoring & ICP<br/>matching</div>
+        </div>
+        <div class="bg-slate-800/50 rounded-xl p-5 border border-slate-700/50 text-center hover:border-green-500/30 transition-colors">
+          <div class="text-3xl mb-2">✉️</div>
+          <div class="text-xs text-green-400 font-semibold mb-1">Step 3</div>
+          <div class="text-sm font-semibold text-slate-200">Outreach</div>
+          <div class="text-[10px] text-slate-500 mt-1">Personalized<br/>email draft</div>
+        </div>
+        <div class="bg-slate-800/50 rounded-xl p-5 border border-slate-700/50 text-center hover:border-orange-500/30 transition-colors">
+          <div class="text-3xl mb-2">📨</div>
+          <div class="text-xs text-orange-400 font-semibold mb-1">Step 4</div>
+          <div class="text-sm font-semibold text-slate-200">Inbound</div>
+          <div class="text-[10px] text-slate-500 mt-1">Reply analysis<br/>& triage</div>
+        </div>
+        <div class="bg-slate-800/50 rounded-xl p-5 border border-slate-700/50 text-center hover:border-teal-500/30 transition-colors">
+          <div class="text-3xl mb-2">🚀</div>
+          <div class="text-xs text-teal-400 font-semibold mb-1">Step 5</div>
+          <div class="text-sm font-semibold text-slate-200">Pipeline</div>
+          <div class="text-[10px] text-slate-500 mt-1">Meeting<br/>Scheduled!</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- What Judges Will See -->
+  <section class="relative py-24 bg-slate-900/50">
+    <div class="max-w-5xl mx-auto px-6">
+      <div class="text-center mb-12">
+        <h2 class="text-3xl font-bold text-slate-100 mb-3">Judge Walkthrough</h2>
+        <p class="text-slate-400 text-sm max-w-xl mx-auto">Seven Mission Control screens that tell the complete story</p>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div class="bg-slate-800 rounded-xl p-5 border border-slate-700/50">
+          <div class="text-2xl mb-2">📊</div>
+          <h3 class="text-sm font-semibold text-slate-200 mb-1">Dashboard</h3>
+          <p class="text-xs text-slate-400">Pipeline snapshot, 5 leads, activity feed showing agent execution</p>
+        </div>
+        <div class="bg-slate-800 rounded-xl p-5 border border-slate-700/50">
+          <div class="text-2xl mb-2">👥</div>
+          <h3 class="text-sm font-semibold text-slate-200 mb-1">Leads List</h3>
+          <p class="text-xs text-slate-400">All 5 companies with status, scores, and pipeline stage</p>
+        </div>
+        <div class="bg-slate-800 rounded-xl p-5 border border-slate-700/50">
+          <div class="text-2xl mb-2">📋</div>
+          <h3 class="text-sm font-semibold text-slate-200 mb-1">Lead Detail</h3>
+          <p class="text-xs text-slate-400">4-card view: profile, qualification (91), outreach draft, pipeline position</p>
+        </div>
+        <div class="bg-slate-800 rounded-xl p-5 border border-slate-700/50">
+          <div class="text-2xl mb-2">✉️</div>
+          <h3 class="text-sm font-semibold text-slate-200 mb-1">Outreach</h3>
+          <p class="text-xs text-slate-400">Approval queue with intelligence brief, inline editor, diff view</p>
+        </div>
+        <div class="bg-slate-800 rounded-xl p-5 border border-slate-700/50">
+          <div class="text-2xl mb-2">📨</div>
+          <h3 class="text-sm font-semibold text-slate-200 mb-1">Inbound</h3>
+          <p class="text-xs text-slate-400">Message from Sarah Chen (SkyGrid COO), intent classification, suggested reply</p>
+        </div>
+        <div class="bg-slate-800 rounded-xl p-5 border border-slate-700/50">
+          <div class="text-2xl mb-2">🚀</div>
+          <h3 class="text-sm font-semibold text-slate-200 mb-1">Pipeline</h3>
+          <p class="text-xs text-slate-400">Kanban board — SkyGrid is at "Meeting Scheduled" stage</p>
+        </div>
+        <div class="bg-slate-800 rounded-xl p-5 border border-slate-700/50">
+          <div class="text-2xl mb-2">⚡</div>
+          <h3 class="text-sm font-semibold text-slate-200 mb-1">Activity</h3>
+          <p class="text-xs text-slate-400">Complete audit log of every agent step with timestamps</p>
+        </div>
+        <div class="bg-slate-800 rounded-xl p-5 border border-slate-700/50 lg:col-span-1">
+          <div class="text-2xl mb-2">🔭</div>
+          <h3 class="text-sm font-semibold text-slate-200 mb-1">Demo Mode</h3>
+          <p class="text-xs text-slate-400">Every SkyGrid card shows "🎯 Demo Account" indicator</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Architecture Summary -->
+  <section class="relative py-24">
+    <div class="max-w-5xl mx-auto px-6">
+      <div class="text-center mb-10">
+        <h2 class="text-3xl font-bold text-slate-100 mb-3">Technical Highlights</h2>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="bg-slate-800/50 rounded-xl p-6 border border-slate-700/50">
+          <div class="text-2xl mb-3">🧩</div>
+          <h3 class="text-sm font-semibold text-slate-200 mb-2">Provider-Neutral AI</h3>
+          <p class="text-xs text-slate-400 leading-relaxed">All 5 agents route through a unified AIProvider interface. Swap between OpenAI, Anthropic, FreeModel, or local models with a single config change.</p>
+        </div>
+        <div class="bg-slate-800/50 rounded-xl p-6 border border-slate-700/50">
+          <div class="text-2xl mb-3">🔧</div>
+          <h3 class="text-sm font-semibold text-slate-200 mb-2">Tool Abstraction</h3>
+          <p class="text-xs text-slate-400 leading-relaxed">Every agent capability (web search, content extraction) is a registered tool. Tools are provider-neutral and can be swapped without changing agent logic.</p>
+        </div>
+        <div class="bg-slate-800/50 rounded-xl p-6 border border-slate-700/50">
+          <div class="text-2xl mb-3">👤</div>
+          <h3 class="text-sm font-semibold text-slate-200 mb-2">Human Approval Boundary</h3>
+          <p class="text-xs text-slate-400 leading-relaxed">No auto-sending. Every outgoing message requires human approval with inline editing, diff view, and complete audit trail.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="border-t border-slate-800 bg-slate-950">
+    <div class="max-w-7xl mx-auto px-6 py-8 flex flex-col sm:flex-row items-center justify-between gap-4">
+      <div class="flex items-center gap-2 text-sm text-slate-500">
+        <span>🔭</span>
+        <span>ScoutOS — Built for FlytBase Hackathon 2026</span>
+      </div>
+      <div class="flex items-center gap-4 text-xs text-slate-600">
+        <a href="/landing" class="hover:text-slate-400 transition-colors">Landing</a>
+        <a href="/dashboard" class="hover:text-slate-400 transition-colors">Mission Control</a>
+        <a href="https://github.com" target="_blank" class="hover:text-slate-400 transition-colors">Source</a>
+      </div>
+    </div>
+  </footer>
+
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+</body>
+</html>

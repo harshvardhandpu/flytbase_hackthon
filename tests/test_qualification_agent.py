@@ -6,7 +6,9 @@ from unittest.mock import MagicMock
 import pytest
 
 from app.agents.qualification import IcpRules, QualificationAgent, _parse_json_object
-from app.core.contracts import AgentContext, AgentTaskInput, AIRequest, AIResponse
+from app.config import get_settings
+from app.core.contracts import AgentContext, AgentResult, AgentTaskInput, AIRequest, AIResponse
+from app.providers.manager import ProviderManager
 
 # ── helpers ────────────────────────────────────────────────────────────
 
@@ -329,6 +331,122 @@ class TestQualificationAgent:
         # COLD: no match
         cold_score, _ = agent._compute_icp_match(SAMPLE_FINDINGS, icp_cold)
         assert cold_score < 40
+
+
+# ── Real provider integration test ──────────────────────────────────────
+
+_HAS_LIVE_FREEMODEL = False
+_settings = get_settings()
+if (
+    _settings.ai_provider == "freemodel"
+    and _settings.anthropic_auth_token
+    and _settings.anthropic_auth_token != "replace-me"
+    and _settings.anthropic_base_url
+):
+    _HAS_LIVE_FREEMODEL = True
+
+
+@pytest.mark.skipif(
+    not _HAS_LIVE_FREEMODEL,
+    reason="Requires AI_PROVIDER=freemodel with a live ANTHROPIC_AUTH_TOKEN",
+)
+class TestQualificationAgentRealProvider:
+    """Integration tests for QualificationAgent with live FreeModelProvider.
+
+    These tests verify the full qualification pipeline with a real LLM:
+    ProviderManager resolves the correct provider, the agent runs
+    deterministic ICP scoring + AI signal evaluation + composite scoring
+    with real LLM calls, and the output contains valid structured scores.
+
+    Uses sample research findings and ICP config as input. Even if the
+    freemodel API is unreachable, the agent falls back gracefully.
+    """
+
+    @staticmethod
+    def _fresh_settings():
+        get_settings.cache_clear()
+        return get_settings()
+
+    def test_resolves_freemodel_provider(self) -> None:
+        """ProviderManager should resolve to FreeModelProvider when configured."""
+        settings = self._fresh_settings()
+        provider = ProviderManager(settings).resolve()
+        assert provider.name == "freemodel"
+
+    @pytest.mark.asyncio
+    async def test_full_workflow_with_real_provider(self) -> None:
+        """Full QualificationAgent workflow with real LLM produces valid scores."""
+        settings = self._fresh_settings()
+        provider = ProviderManager(settings).resolve()
+        tm = make_fake_tm()
+
+        agent = QualificationAgent(
+            ai_provider=provider, tool_manager=MagicMock(), task_manager=tm
+        )
+        context = AgentContext(task_id=uuid.uuid4(), correlation_id="real-qual-test")
+        task = AgentTaskInput(
+            id=uuid.uuid4(),
+            agent_type="qualification",
+            input_data={
+                "report_id": str(uuid.uuid4()),
+                "company_name": "FlytBase",
+                "findings": SAMPLE_FINDINGS,
+                "icp_config": SAMPLE_ICP,
+            },
+        )
+
+        result = await agent.run(context, task)
+        output = result.output_data
+
+        # Verify result structure — works for both real API and fallback
+        assert isinstance(result, AgentResult)
+        assert output["overall_score"] > 0
+        assert output["icp_match_score"] > 0
+        assert output["buying_signal_score"] > 0
+        assert output["company_fit_score"] > 0
+        assert output["priority"] in ("HOT", "WARM", "COLD")
+        assert "recommended_bdr_action" in output
+        assert "urgency" in output["recommended_bdr_action"]
+        assert "suggested_sales_angle" in output["recommended_bdr_action"]
+        assert isinstance(output.get("reasons", []), list)
+        assert isinstance(output.get("risks", []), list)
+        assert output["providers_used"] == "freemodel"
+
+    @pytest.mark.asyncio
+    async def test_real_provider_logs_expected_events(self) -> None:
+        """All expected step events are logged with a real provider."""
+        settings = self._fresh_settings()
+        provider = ProviderManager(settings).resolve()
+        tm = make_fake_tm()
+
+        agent = QualificationAgent(
+            ai_provider=provider, tool_manager=MagicMock(), task_manager=tm
+        )
+        context = AgentContext(task_id=uuid.uuid4(), correlation_id="real-qual-logs")
+        task = AgentTaskInput(
+            id=uuid.uuid4(),
+            agent_type="qualification",
+            input_data={
+                "report_id": str(uuid.uuid4()),
+                "company_name": "FlytBase",
+                "findings": SAMPLE_FINDINGS,
+                "icp_config": SAMPLE_ICP,
+            },
+        )
+
+        await agent.run(context, task)
+
+        events = logged_event_types(tm)
+        for expected in (
+            "qualification_started",
+            "icp_config_loaded",
+            "deterministic_scoring_completed",
+            "ai_scoring_started",
+            "ai_scoring_completed",
+            "priority_assigned",
+            "qualification_completed",
+        ):
+            assert expected in events, f"Missing log event: {expected}"
 
 
 # ── JSON parsing helper tests ──────────────────────────────────────────

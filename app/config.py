@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     openai_model: str | None = None
     local_model: str | None = None
 
+    # ── Search provider settings ───────────────────────────────────────
+    search_provider: str = "simulated"
+    tavily_api_key: str | None = None
+
 
 @lru_cache
 def get_settings() -> Settings:

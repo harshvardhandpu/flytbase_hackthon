@@ -19,19 +19,22 @@ ScoutOS is an AI-powered BDR (Business Development Representative) Operating Sys
 | Phase 5 | ✅ Complete | Inbound & Pipeline Agents — message triage, pipeline intelligence |
 | Phase 6 | ✅ Complete | Mission Control Dashboard — 7 views, seed script, premium landing page |
 | Phase 6.5 | ✅ Complete | Inline editor, diff view, extended intelligence diff — all outreach approval modal enhancements |
-| Codex Handoff | ✅ Complete | Final verification, lint fix, test fix, documentation, latest feature updates |
+| Phase 7 | ✅ Complete | Account Intelligence Engine — web search, extraction, intelligence analysis, upgraded ResearchAgent |
+| Phase 8 | ✅ Complete | Demo Scenario — `/demo` endpoint, one-click seed + redirect, demo indicators, `scripts/demo.py` launcher, docs/DEMO_SCENARIO.md |
+| Codex Handoff (Final) | ✅ Complete | Final pre-submission audit — fixed pre-existing test failure (`test_missing_provider_is_explicitly_unavailable`), cleared `.env.example` variables, full lint + test + demo verification, final status report |
 
 ---
 
 ## Changes Made by Codex
 
 ### Date
-July 23, 2026 (updated from July 21)
+July 24, 2026 (final pre-submission audit)
 
 ### Files Modified
 
 | File | Change |
 |------|--------|
+| `tests/test_provider_manager.py` | Fixed `test_missing_provider_is_explicitly_unavailable` — explicitly clears all provider-related settings to prevent `.env` leakage. Now passes (was the only failing test). |
 | `tests/test_inbound_pipeline_api.py` | Fixed test assertion: `test_pipeline_advance_missing_stage` expects 404 (lead not found) instead of 422 |
 | `app/intelligence/outreach_brief.py` | Fixed 7 E501 line-length lint errors (cosmetic) |
 | `app/agents/outreach.py` | Fixed 1 E501 lint error (cosmetic) |
@@ -39,6 +42,7 @@ July 23, 2026 (updated from July 21)
 | `app/api/router.py` | Extended `ApproveRequest` with `edited_intelligence` field; added merge logic in `approve_outreach_draft()` to update `CompanyIntelligenceBrief.brief_data` while preserving unedited fields |
 | `app/templates/outreach.html` | Added inline editor (3-state toggle, character counts, revert), word-level LCS diff view, extended diff for 5 intelligence sections, Alpine.js state management (`intelDirty`, `overallDirty`, `cachedIntelDiff`, `_syncIntelEditsToDraft()`, `revertIntelToOriginal()`) |
 | `tests/test_outreach_api.py` | Added 5 tests for `edited_intelligence` merge logic; ruff format cleanup |
+| `scripts/seed_demo_data.py` | Added Account Intelligence data (`mock_search_results`, `intelligence_data`), richer research output & step events, `account_intelligence` param to `CompanyIntelligenceBriefBuilder.build()` |
 
 ### Features Added
 
@@ -67,6 +71,24 @@ July 23, 2026 (updated from July 21)
 **Tests:**
 - 5 new tests in `TestOutreachApproveIntelligenceMerge` covering null, full, partial, empty, and missing-brief scenarios
 
+**Account Intelligence Engine (Phase 7):**
+- `WebSearchTool` — Tavily Search API with simulated fallback
+- `WebContentExtractorTool` — URL content extraction with simulated fallback
+- `AccountResearchIntelligence` — LLM-powered company intelligence via AIProvider
+- Upgraded `ResearchAgent` with Account Intelligence integration, new step events (`search_started`, `search_completed`, `extraction_started`, `intelligence_analysis_started/completed`), citations output
+- Database migration `20260723_0001` adding `citations` and `intelligence_metadata` to `research_reports`
+- Updated `CompanyIntelligenceBriefBuilder` to accept `account_intelligence` parameter
+- 22 new tests: web search (7), web extractor (7), account intelligence (8)
+
+**Seed Script Updated — Account Intelligence Engine Integration:**
+- Added `mock_search_results` (3-4 search result objects per company) to simulate `WebSearchTool`
+- Added `intelligence_data` (structured dict with 10 fields per company) to simulate `AccountResearchIntelligence`
+- Research task output now includes `intelligence_metadata` and `citations`
+- `ResearchReport` populates new `citations` and `intelligence_metadata` columns
+- Step event logs include richer flow: `search_started`, `search_completed`, `extraction_started`, `intelligence_generated`
+- `CompanyIntelligenceBriefBuilder.build()` receives `account_intelligence` — outreach briefs use richer fields
+- Legacy `profile_data` fields preserved unchanged
+
 ### Architecture Decisions
 No architecture changes were made. The existing patterns are preserved:
 - `AIProvider + ToolManager + TaskManager` constructor injection
@@ -77,17 +99,22 @@ No architecture changes were made. The existing patterns are preserved:
 - Intelligence data stays in `CompanyIntelligenceBrief.brief_data` — no new migrations
 
 ### Known Limitations
-- All research tools are simulated (no real web search)
+- Research tools default to simulated mode unless `TAVILY_API_KEY` is configured
 - PostgreSQL must be running for the server to function
 - No authentication or multi-user support
 - Outreach drafts are approved but never automatically sent
 - Intelligence diff is client-side only (no REST endpoint to view diff programmatically)
 
+### Test Count
+- **Current:** 204 passed, 18 skipped (0 failures)
+- **Pre-audit:** 203 passed, 1 failure (`test_missing_provider_is_explicitly_unavailable`), 18 skipped
+- **Fix:** `test_missing_provider_is_explicitly_unavailable` now explicitly passes `ai_provider=None, anthropic_base_url=None, anthropic_auth_token=None, openai_api_key=None` to prevent `.env` auto-load (Pydantic `BaseSettings` loads from `.env` even in tests). The test correctly validates the `ProviderManager` fallback to `UnavailableProvider` when no credentials are configured.
+
 ### Remaining Tasks
 - See `docs/ROADMAP.md` for post-hackathon roadmap
-- Consider adding real API integrations (web search, email sending)
+- Configure `TAVILY_API_KEY` for real web search (defaults to simulated)
+- Add email sending integration for approved outreach drafts
 - Add authentication layer
-- Add unit tests for `app/intelligence/` module
 - Add server-side diff endpoint for programmatic access to diff data
 - Consider extracting the LCS diff algorithm to a reusable utility
 

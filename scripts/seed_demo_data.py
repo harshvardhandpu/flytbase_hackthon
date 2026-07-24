@@ -42,6 +42,7 @@ COMPANIES = [
         "location": "San Francisco, CA",
         "profile_data": {
             "description": "SkyGrid provides autonomous drone fleet management software for enterprise logistics, agriculture, and inspection use cases. Their platform enables real-time fleet tracking, automated flight planning, and AI-powered data analysis.",
+            "location": "San Francisco, CA",
             "business_signals": [
                 "hiring robotics engineers",
                 "raised Series B ($40M)",
@@ -56,6 +57,48 @@ COMPANIES = [
             ],
             "flytbase_relevance": "Direct competitor overlap — SkyGrid's fleet management complements FlytBase's drone-agnostic ground control software. Partnership opportunity in enterprise logistics.",
         },
+        "mock_search_results": [
+            {"title": "SkyGrid Series B — $40M for Drone Fleet Expansion", "url": "https://techcrunch.com/2026/01/skygrid-series-b", "snippet": "SkyGrid raised $40M in Series B funding led by Accel to expand its autonomous drone fleet management platform to European markets."},
+            {"title": "SkyGrid Careers — Engineering Roles", "url": "https://skygrid.io/careers", "snippet": "SkyGrid is hiring robotics engineers, infrastructure engineers, and product managers across all teams."},
+            {"title": "SkyGrid Launches Drone-as-a-Service", "url": "https://dronelife.com/skygrid-daas", "snippet": "SkyGrid announced a new drone-as-a-service offering for enterprise logistics customers."},
+            {"title": "SkyGrid Products", "url": "https://skygrid.io/products", "snippet": "SkyGrid provides autonomous fleet management, real-time tracking, automated flight planning, and AI-powered data analysis."},
+        ],
+        "intelligence_data": {
+            "company_situation": "SkyGrid is a well-funded ($40M Series B) drone fleet management company actively scaling operations into the EU market. Their recent DaaS launch signals a shift toward recurring revenue and broader enterprise adoption.",
+            "business_problems": [
+                "Manual flight planning consumes excessive engineering time as fleet scales across regions",
+                "Regulatory compliance overhead across multiple jurisdictions slows deployment",
+                "Fragmented data pipeline between drones and downstream analysis tools reduces operational efficiency"
+            ],
+            "operational_risks": [
+                "EU expansion without centralised fleet ops could lead to fragmented telemetry and mission conflicts",
+                "If manual planning processes remain unaddressed, scaling from 320 to 500+ employees may amplify coordination overhead",
+                "Lack of a unified remote operations layer could delay incident response across distributed sites"
+            ],
+            "growth_signals": [
+                "hiring robotics engineers",
+                "raised Series B ($40M)",
+                "expanding to EU market",
+                "launched drone-as-a-service",
+                "Active job postings for multiple engineering roles"
+            ],
+            "buying_signals": [
+                "Evaluating fleet management platforms for multi-region operations",
+                "Hiring engineers with integration expertise suggests platform consolidation work"
+            ],
+            "technology_signals": ["Python", "React", "AWS", "PostgreSQL", "Kubernetes"],
+            "flytbase_relevance": "High — SkyGrid's fleet management complements FlytBase's drone-agnostic ground control. Partnership opportunity in enterprise logistics with significant cross-sell potential.",
+            "industry_incidents": [
+                {"title": "Scaling Without Centralised Fleet Ops Creates Risk", "summary": "A leading drone inspection company faced mission conflicts and telemetry fragmentation when scaling from 50 to 200 drones across 5 regions without a unified command layer.", "implication": "SkyGrid's EU expansion mirrors this scenario — FlytBase provides the centralised remote operations layer that prevents these issues."},
+                {"title": "Regulatory Fragmentation Slows EU Deployments", "summary": "Several drone operators reported 3-6 month delays in EU market entry due to inconsistent compliance workflows across member states.", "implication": "FlytBase's compliance management module can automate regulatory reporting and reduce EU deployment timelines."}
+            ],
+            "recommended_sales_angle": "Lead with operational visibility and control — position FlytBase as the unified remote operations layer that enables SkyGrid to scale its fleet across the EU without coordination overhead.",
+            "citations": [
+                {"source": "SkyGrid Series B Announcement", "url": "https://techcrunch.com/2026/01/skygrid-series-b", "key_finding": "$40M Series B raised for EU market expansion"},
+                {"source": "SkyGrid Careers Page", "url": "https://skygrid.io/careers", "key_finding": "Actively hiring robotics and infrastructure engineers"},
+                {"source": "SkyGrid DaaS Launch", "url": "https://dronelife.com/skygrid-daas", "key_finding": "Launched drone-as-a-service for enterprise logistics"}
+            ]
+        },
     },
     {
         "name": "AeroVista",
@@ -65,6 +108,7 @@ COMPANIES = [
         "location": "Austin, TX",
         "profile_data": {
             "description": "AeroVista specializes in high-resolution aerial surveying for construction, real estate, and infrastructure inspection. Uses drones for orthomosaic mapping and 3D modeling.",
+            "location": "Austin, TX",
             "business_signals": [
                 "won contract with major construction firm",
                 "hiring GIS specialists",
@@ -78,6 +122,43 @@ COMPANIES = [
             ],
             "flytbase_relevance": "Strong integration opportunity — FlytBase's mission planning and livestreaming would streamline AeroVista's surveying workflows.",
         },
+        "mock_search_results": [
+            {"title": "AeroVista Wins Major Construction Contract", "url": "https://www.businesswire.com/aerovista-contract", "snippet": "AeroVista awarded multi-year aerial surveying contract with a top 5 US construction firm."},
+            {"title": "AeroVista Careers", "url": "https://aerovista.tech/careers", "snippet": "AeroVista is hiring GIS specialists and software engineers to expand its surveying platform."},
+            {"title": "AeroVista Stitching Technology", "url": "https://aerovista.tech/stitching", "snippet": "AeroVista's proprietary orthomosaic stitching software produces high-accuracy 3D models from drone surveys."},
+        ],
+        "intelligence_data": {
+            "company_situation": "AeroVista is a growing aerial surveying company (85 employees) that recently secured a major construction contract. Their proprietary stitching software suggests technical depth and a desire for in-house control over their workflow.",
+            "business_problems": [
+                "Manual flight planning for each survey site limits per-day throughput and scalability",
+                "Manual data handoff between field ops and clients introduces delays and potential errors",
+                "No real-time collaboration capability during active missions reduces client engagement"
+            ],
+            "operational_risks": [
+                "Without automated planning, scaling from the new construction contract will strain field resources",
+                "Manual data pipelines create single points of failure and limit service-level commitments",
+                "Competitors with real-time client delivery capabilities may erode AeroVista's market position"
+            ],
+            "growth_signals": [
+                "won contract with major construction firm",
+                "hiring GIS specialists",
+                "developing proprietary stitching software"
+            ],
+            "buying_signals": [
+                "Proprietary software investment indicates willingness to adopt new tools for workflow control"
+            ],
+            "technology_signals": ["GIS", "Python", "C++", "PostGIS"],
+            "flytbase_relevance": "Medium-High — FlytBase's automated mission planning and real-time streaming directly addresses AeroVista's manual workflow bottlenecks.",
+            "industry_incidents": [
+                {"title": "Manual Survey Handoff Creates Liability Risk", "summary": "Aerial surveying company faced a lawsuit when an outdated orthomosaic was delivered to a client, causing construction delays. Manual data versioning was identified as root cause.", "implication": "Automated data pipelines with version control (like FlytBase provides) eliminate this class of errors."}
+            ],
+            "recommended_sales_angle": "Focus on mission planning automation and real-time client streaming — position FlytBase as the workflow layer that lets AeroVista deliver surveys faster with fewer errors.",
+            "citations": [
+                {"source": "AeroVista Contract Announcement", "url": "https://www.businesswire.com/aerovista-contract", "key_finding": "Multi-year contract with major construction firm"},
+                {"source": "AeroVista Careers", "url": "https://aerovista.tech/careers", "key_finding": "Hiring GIS specialists and software engineers"},
+                {"source": "AeroVista Stitching", "url": "https://aerovista.tech/stitching", "key_finding": "Proprietary orthomosaic stitching technology"}
+            ]
+        },
     },
     {
         "name": "DroneFleet Logistics",
@@ -87,6 +168,7 @@ COMPANIES = [
         "location": "Chicago, IL",
         "profile_data": {
             "description": "DroneFleet operates a last-mile delivery network using autonomous drones for medical supplies, food delivery, and e-commerce logistics in urban and suburban areas.",
+            "location": "Chicago, IL",
             "business_signals": [
                 "raised Series A ($18M)",
                 "partnered with major pharmacy chain",
@@ -100,6 +182,48 @@ COMPANIES = [
             ],
             "flytbase_relevance": "High relevance — FlyTbase's fleet management and remote drone operations capabilities directly address DroneFleet's scalability challenges.",
         },
+        "mock_search_results": [
+            {"title": "DroneFleet Raises $18M Series A", "url": "https://techcrunch.com/2026/02/dronefleet-series-a", "snippet": "DroneFleet Logistics raised $18M in Series A to expand its autonomous last-mile delivery network."},
+            {"title": "DroneFleet Partners with Major Pharmacy Chain", "url": "https://www.healthcarenews.com/dronefleet-pharmacy", "snippet": "DroneFleet will provide drone delivery services for prescription medications across 3 US cities."},
+            {"title": "DroneFleet Launches in 3 New Cities", "url": "https://dronelife.com/dronefleet-expansion", "snippet": "DroneFleet expands delivery operations to Chicago, Austin, and Denver — tripling its operational footprint."},
+            {"title": "DroneFleet Technology Stack", "url": "https://dronefleet.com/tech", "snippet": "DroneFleet runs on GCP with Go microservices, Redis caching, and Terraform for infrastructure."},
+        ],
+        "intelligence_data": {
+            "company_situation": "DroneFleet is a rapidly scaling delivery logistics company (210 employees) with $18M Series A funding. They've tripled their operational footprint with 3 new city launches and secured a major pharmacy partnership — indicating strong product-market fit and accelerating operational complexity.",
+            "business_problems": [
+                "Fleet scalability — coordinating deliveries across multiple cities requires sophisticated fleet management that current manual processes can't support",
+                "Airspace deconfliction at scale — simultaneous operations in overlapping delivery zones create collision risks without automated coordination",
+                "Battery swap logistics — managing battery lifecycle across distributed drone fleets is becoming operationally complex"
+            ],
+            "operational_risks": [
+                "Scaling delivery volume without automated fleet coordination increases risk of missed SLAs and delivery failures",
+                "Airspace conflicts between simultaneous deliveries could lead to safety incidents and regulatory penalties",
+                "Battery-related downtime will compound across cities, reducing fleet utilisation and increasing cost per delivery"
+            ],
+            "growth_signals": [
+                "raised Series A ($18M)",
+                "partnered with major pharmacy chain",
+                "launched in 3 new cities",
+                "Expanding delivery network across US metros"
+            ],
+            "buying_signals": [
+                "Scaling pace suggests imminent need for fleet management platform",
+                "Partnership with pharmacy chain increases SLA requirements"
+            ],
+            "technology_signals": ["Go", "React Native", "GCP", "Redis", "Terraform"],
+            "flytbase_relevance": "High — DroneFleet's scalability challenges are exactly what FlytBase's fleet management and remote operations platform was built to solve. API integration with GCP stack would be seamless.",
+            "industry_incidents": [
+                {"title": "Delivery Drone Collision Highlights Deconfliction Gap", "summary": "A drone delivery operator experienced a mid-air collision between two delivery drones in overlapping service zones, grounding operations for 2 weeks and costing $500K in regulatory fines.", "implication": "FlytBase's automated airspace deconfliction engine prevents this class of incident, protecting both operations and regulatory standing."},
+                {"title": "Battery Failures Ground Fleet During Peak Demand", "summary": "A last-mile delivery provider reported 30% fleet downtime during holiday peak due to unmanaged battery lifecycle, resulting in 45% missed deliveries.", "implication": "FlytBase's battery management module provides predictive maintenance and lifecycle tracking to prevent peak-season downtime."}
+            ],
+            "recommended_sales_angle": "Showcase fleet management and automated deconfliction for multi-city scaling — lead with how FlytBase prevents the operational risks that delivery networks face at DroneFleet's growth stage.",
+            "citations": [
+                {"source": "DroneFleet Series A", "url": "https://techcrunch.com/2026/02/dronefleet-series-a", "key_finding": "$18M Series A for delivery network expansion"},
+                {"source": "DroneFleet Pharmacy Partnership", "url": "https://www.healthcarenews.com/dronefleet-pharmacy", "key_finding": "Major pharmacy chain partnership across 3 cities"},
+                {"source": "DroneFleet City Expansion", "url": "https://dronelife.com/dronefleet-expansion", "key_finding": "Launched in 3 new cities — tripling operational footprint"},
+                {"source": "DroneFleet Engineering Blog", "url": "https://dronefleet.com/tech", "key_finding": "GCP, Go microservices, Redis, Terraform stack"}
+            ]
+        },
     },
     {
         "name": "AirMap Technologies",
@@ -109,6 +233,7 @@ COMPANIES = [
         "location": "Berlin, Germany",
         "profile_data": {
             "description": "AirMap builds airspace intelligence and UTM (Unmanned Traffic Management) solutions for drone operators, airports, and regulatory authorities across Europe.",
+            "location": "Berlin, Germany",
             "business_signals": [
                 "participating in EU drone regulation pilot",
                 "hiring airspace engineers",
@@ -122,6 +247,44 @@ COMPANIES = [
             ],
             "flytbase_relevance": "Strategic partnership — AirMap's UTM integration would expand FlyTbase's European market presence and regulatory compliance features.",
         },
+        "mock_search_results": [
+            {"title": "AirMap Selected for EU Drone Regulation Pilot", "url": "https://www.euinstitution.eu/airmap-pilot", "snippet": "AirMap Technologies selected to participate in the EU's U-space drone traffic management pilot program."},
+            {"title": "AirMap Careers", "url": "https://airmap.tech/careers", "snippet": "AirMap is hiring airspace engineers and regulatory specialists across Europe."},
+            {"title": "AirMap European Innovation Council Grant", "url": "https://eic.ec.europa.eu/airmap", "snippet": "AirMap awarded €2M grant from the European Innovation Council for UTM research and development."},
+        ],
+        "intelligence_data": {
+            "company_situation": "AirMap is an early-stage (55 employees) airspace intelligence company based in Berlin, active in EU U-space regulatory pilots. Their €2M EIC grant validates their technology approach but limited commercial revenue signals suggest early-stage go-to-market.",
+            "business_problems": [
+                "Integration with multiple drone platforms requires significant engineering effort to support heterogeneous hardware ecosystems",
+                "Real-time airspace data processing at scale demands low-latency infrastructure across diverse European regulatory zones",
+                "Regulatory reporting automation is manual and varies across EU member states"
+            ],
+            "operational_risks": [
+                "Early-stage company with limited commercial revenue may have longer sales cycles and budget constraints",
+                "Dependence on EU regulatory timelines creates uncertainty in product roadmap",
+                "Small engineering team (55 employees) may limit integration capacity with partners"
+            ],
+            "growth_signals": [
+                "participating in EU drone regulation pilot",
+                "hiring airspace engineers",
+                "grant from European Innovation Council",
+                "EU U-space pilot participation signals regulatory credibility"
+            ],
+            "buying_signals": [
+                "Limited near-term buying signals — more strategic partnership than direct customer"
+            ],
+            "technology_signals": ["Java", "Angular", "Azure", "Cassandra"],
+            "flytbase_relevance": "Medium — Strategic partnership opportunity: AirMap's UTM integration would expand FlytBase's European compliance capabilities, but near-term revenue potential is limited.",
+            "industry_incidents": [
+                {"title": "UTM Integration Fragmentation Slows European Drone Adoption", "summary": "European drone operators report that fragmented UTM systems across member states create operational complexity and compliance risk, slowing commercial drone adoption.", "implication": "A FlytBase-AirMap integration could offer a unified UTM layer that simplifies cross-border European operations."}
+            ],
+            "recommended_sales_angle": "Position as strategic partnership — explore FlytBase fleet ops integration with AirMap UTM for a combined European market offering. Low immediate revenue but high strategic value.",
+            "citations": [
+                {"source": "EU U-space Pilot Selection", "url": "https://www.euinstitution.eu/airmap-pilot", "key_finding": "Selected for EU U-space drone traffic management pilot"},
+                {"source": "AirMap Careers Page", "url": "https://airmap.tech/careers", "key_finding": "Hiring airspace engineers and regulatory specialists"},
+                {"source": "European Innovation Council", "url": "https://eic.ec.europa.eu/airmap", "key_finding": "€2M EIC grant for UTM research"}
+            ]
+        },
     },
     {
         "name": "PrecisionAg Drones",
@@ -131,6 +294,7 @@ COMPANIES = [
         "location": "Bangalore, India",
         "profile_data": {
             "description": "PrecisionAg provides drone-based crop monitoring, spraying, and yield analysis services for Indian farms. Combines multispectral imaging with ML for actionable insights.",
+            "location": "Bangalore, India",
             "business_signals": [
                 "growing rapidly in Indian market",
                 "partnered with agricultural universities",
@@ -143,6 +307,45 @@ COMPANIES = [
                 "need for automated reporting"
             ],
             "flytbase_relevance": "High growth potential — PrecisionAg is ripe for FlyTbase's remote drone operations and automation features to scale their service offerings.",
+        },
+        "mock_search_results": [
+            {"title": "PrecisionAg Expands Crop Monitoring Services", "url": "https://agtechnews.com/precisionag-expansion", "snippet": "PrecisionAg Drones is rapidly expanding its drone-based crop monitoring services across southern India."},
+            {"title": "PrecisionAg Partners with Agricultural Universities", "url": "https://www.educationindia.com/precisionag-university", "snippet": "PrecisionAg partners with Indian agricultural universities for ML crop disease detection research."},
+            {"title": "PrecisionAg Technology", "url": "https://precisionag.io/tech", "snippet": "PrecisionAg uses TensorFlow-based ML for multispectral image analysis and crop health assessment."},
+        ],
+        "intelligence_data": {
+            "company_situation": "PrecisionAg is a small but growing (42 employees) Agri-drone service provider in India. Their ML crop disease detection capability and university partnerships suggest technical sophistication, but small team size and limited funding signal early growth stage.",
+            "business_problems": [
+                "Manual drone operation limits the number of farms they can service per day, capping revenue growth",
+                "Limited remote operations capability means pilots must be physically present for each mission",
+                "Automated reporting is needed to deliver timely insights to farmers at scale"
+            ],
+            "operational_risks": [
+                "Manual pilot-dependent operations don't scale economically for Indian agricultural price points",
+                "Without remote operations, geographic expansion requires hiring local pilots in each new region",
+                "Competing agri-drone providers with automation may undercut on price and delivery speed"
+            ],
+            "growth_signals": [
+                "growing rapidly in Indian market",
+                "partnered with agricultural universities",
+                "developed ML crop disease detection",
+                "Expanding service footprint across southern India"
+            ],
+            "buying_signals": [
+                "No public funding signals — price sensitivity expected",
+                "University partnerships suggest R&D focus rather than commercial scale-up"
+            ],
+            "technology_signals": ["Python", "TensorFlow", "React", "PostgreSQL"],
+            "flytbase_relevance": "Medium — PrecisionAg's scale-up ambitions align with FlytBase's remote operations and automation features, but budget constraints in the Indian market may affect near-term opportunity.",
+            "industry_incidents": [
+                {"title": "Manual Drone Operations Cap Agri-Service Growth", "summary": "Several Indian agri-drone service providers report that pilot-dependent operations limit them to 5-10 farms per day, making unit economics challenging at scale.", "implication": "FlytBase's remote operations capability could 5x PrecisionAg's per-pilot farm coverage, dramatically improving unit economics."}
+            ],
+            "recommended_sales_angle": "Highlight cost savings from remote operations and automation — position FlytBase as a growth enabler that lets PrecisionAg scale service coverage without proportional headcount increase.",
+            "citations": [
+                {"source": "PrecisionAg Expansion News", "url": "https://agtechnews.com/precisionag-expansion", "key_finding": "Rapidly expanding drone-based crop monitoring services in southern India"},
+                {"source": "PrecisionAg University Partnership", "url": "https://www.educationindia.com/precisionag-university", "key_finding": "Partnerships with agricultural universities for ML crop disease detection"},
+                {"source": "PrecisionAg Technology", "url": "https://precisionag.io/tech", "key_finding": "TensorFlow-based ML for multispectral image analysis"}
+            ]
         },
     },
 ]
@@ -509,6 +712,10 @@ def seed_database() -> None:
         db.add(lead)
         db.flush()
 
+        # ── Account Intelligence data ─────────────────────────────────────
+        intel_data = company_data.get("intelligence_data", {})
+        search_results = company_data.get("mock_search_results", [])
+
         # ── Research Task ────────────────────────────────────────────────
         research_task = models.AgentTask(
             id=_id(),
@@ -520,6 +727,19 @@ def seed_database() -> None:
             output_data={
                 "summary": f"Researched {company.name} — {company_data['industry']} company with {company_data['employee_count']} employees.",
                 "findings": company_data["profile_data"],
+                "intelligence_metadata": {
+                    "company_situation": intel_data.get("company_situation", ""),
+                    "business_problems": intel_data.get("business_problems", []),
+                    "operational_risks": intel_data.get("operational_risks", []),
+                    "growth_signals": intel_data.get("growth_signals", []),
+                    "buying_signals": intel_data.get("buying_signals", []),
+                    "industry_incidents": intel_data.get("industry_incidents", []),
+                    "flytbase_relevance": intel_data.get("flytbase_relevance", ""),
+                    "recommended_sales_angle": intel_data.get("recommended_sales_angle", ""),
+                    "source": "account_intelligence_engine",
+                },
+                "citations": intel_data.get("citations", []),
+                "search_results": search_results,
                 "providers_used": "freebuff",
             },
             created_at=_dt(days=28),
@@ -528,15 +748,17 @@ def seed_database() -> None:
         db.add(research_task)
         db.flush()
 
-        # Research Logs
-        _add_log(db, research_task.id, "research_started", "Starting research for company", {"company": company.name}, _dt(days=28, hours=2))
-        _add_log(db, research_task.id, "tool_called", "Running web search for company details", {"tool": "simulated_web_search"}, _dt(days=28, hours=1))
-        _add_log(db, research_task.id, "tool_completed", "Web search completed — 12 results", {"result_count": 12}, _dt(days=28))
+        # Research Logs — rich Account Intelligence flow
+        _add_log(db, research_task.id, "research_started", "Starting research for company", {"company": company.name}, _dt(days=28, hours=4))
+        _add_log(db, research_task.id, "search_started", "Web search for company details and industry signals", {"tool": "web_search"}, _dt(days=28, hours=3))
+        _add_log(db, research_task.id, "search_completed", f"Web search returned {len(search_results)} results", {"result_count": len(search_results)}, _dt(days=28, hours=2))
+        _add_log(db, research_task.id, "extraction_started", "Extracting content from top sources", {"tool": "extract_web_content", "source_count": min(len(search_results), 3)}, _dt(days=28, hours=1))
+        _add_log(db, research_task.id, "intelligence_generated", "Account Intelligence analysis complete", {"company": company.name, "signals_detected": len(intel_data.get("growth_signals", [])) + len(intel_data.get("buying_signals", []))}, _dt(days=28))
         _add_log(db, research_task.id, "synthesis_started", "Synthesizing research findings", {}, _dt(days=28))
         _add_log(db, research_task.id, "report_created", "Research report generated", {"industry": company_data["industry"], "employee_count": company_data["employee_count"]}, _dt(days=27, hours=23))
         _add_log(db, research_task.id, "task_completed", "Research task completed successfully", {}, _dt(days=27))
 
-        # Research Report
+        # Research Report — with citations and intelligence_metadata
         report = models.ResearchReport(
             id=_id(),
             company_id=company.id,
@@ -548,14 +770,26 @@ def seed_database() -> None:
                 {"url": f"https://{company.domain}/about", "title": f"{company.name} About"},
                 {"url": f"https://{company.domain}/careers", "title": f"{company.name} Careers"},
                 {"url": f"https://crunchbase.com/company/{company.domain.split('.')[0]}", "title": f"{company.name} Crunchbase"},
+                *[{"url": r["url"], "title": r["title"], "snippet": r["snippet"]} for r in search_results],
             ],
+            citations=intel_data.get("citations", []),
+            intelligence_metadata={
+                "company_situation": intel_data.get("company_situation", ""),
+                "business_problems": intel_data.get("business_problems", []),
+                "operational_risks": intel_data.get("operational_risks", []),
+                "growth_signals": intel_data.get("growth_signals", []),
+                "buying_signals": intel_data.get("buying_signals", []),
+                "industry_incidents": intel_data.get("industry_incidents", []),
+                "flytbase_relevance": intel_data.get("flytbase_relevance", ""),
+                "recommended_sales_angle": intel_data.get("recommended_sales_angle", ""),
+            },
             provider="freebuff",
             created_at=_dt(days=27),
         )
         db.add(report)
         db.flush()
 
-        print("      📋 Research report created")
+        print("      📋 Research report created (with Account Intelligence)")
 
         # ── Qualification Task ───────────────────────────────────────────
         qual_data = next(q for q in QUALIFICATION_DATA if q["company_name"] == company_name)
@@ -670,6 +904,7 @@ def seed_database() -> None:
                 company_name=company.name,
                 research={"industry": company_data["industry"], **company_data["profile_data"]},
                 qualification=qual_data,
+                account_intelligence=intel_data if intel_data else None,
             )
             db.add(models.CompanyIntelligenceBrief(
                 id=_id(),

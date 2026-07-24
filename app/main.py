@@ -1,3 +1,5 @@
+import subprocess
+import sys
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -108,6 +110,59 @@ async def activity_view(request: Request):
         "activity.html",
         {"active_nav": "activity", "env": settings.app_env},
     )
+
+
+# ── Demo Mode ─────────────────────────────────────────────────────────
+
+
+@app.get("/demo", tags=["frontend"])
+async def demo_page(request: Request):
+    """One-click judge demonstration page.
+
+    Opens a demo introduction screen. The 'Launch Demo Mission' button
+    seeds demo data and redirects to the Mission Control dashboard.
+    """
+    return templates.TemplateResponse(
+        request,
+        "demo.html",
+        {"env": settings.app_env},
+    )
+
+
+@app.post("/demo/seed", tags=["frontend"])
+async def demo_seed() -> dict[str, str]:
+    """Seed demo data and return redirect URL.
+
+    Called by the Launch Demo Mission button. Runs the seed script
+    then returns the dashboard URL for the frontend to navigate to.
+    """
+    try:
+        seed_script = (
+            Path(__file__).resolve().parent.parent / "scripts" / "seed_demo_data.py"
+        )
+        result = subprocess.run(
+            [sys.executable, str(seed_script)],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            return {
+                "status": "error",
+                "message": result.stderr[:500],
+                "redirect": "/dashboard",
+            }
+        return {
+            "status": "ok",
+            "message": "Demo data seeded successfully",
+            "redirect": "/dashboard",
+        }
+    except Exception as exc:
+        return {
+            "status": "error",
+            "message": str(exc)[:500],
+            "redirect": "/dashboard",
+        }
 
 
 # ── Health ─────────────────────────────────────────────────────────────

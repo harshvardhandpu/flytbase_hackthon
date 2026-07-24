@@ -107,31 +107,127 @@ Implement inbound message processing (intent classification, reply generation, h
 - Full 11-step flow: open draft → edit 5 intelligence fields → toggle diff → verify green/red highlights → approve → hard refresh → persistence confirmed
 - Zero console errors (only expected Tailwind CDN production warning)
 
+## Phase 7 — Account Intelligence Engine ✅
+
+**Completed:** July 23, 2026
+
+**Delivered:** Real web search via Tavily API, web content extraction, LLM-powered company intelligence analysis, upgraded ResearchAgent with enriched output. **178 tests passing, lint clean.**
+
+### What was built
+
+**Real Web Search Tool** (`app/tools/web_search.py`)
+- Tavily Search API integration with automatic simulated fallback
+- Uses `httpx` for async HTTP calls
+- Falls back to deterministic mock results when API key is absent
+
+**Web Content Extractor Tool** (`app/tools/web_extractor.py`)
+- Fetches URLs and extracts clean readable text via HTTP GET + regex HTML stripping
+- Falls back to simulated page content on network errors
+
+**Account Intelligence Layer** (`app/intelligence/account_research.py`)
+- `AccountResearchIntelligence` — transforms raw research into structured BDR intelligence
+- Provider-neutral — uses `AIProvider` interface
+- Fields: company_situation, business_problems, operational_risks, growth_signals, buying_signals, industry_incidents, citations
+- Deterministic fallback when LLM analysis fails
+
+**Upgraded ResearchAgent** (`app/agents/research.py`)
+- Integrates Account Intelligence Engine
+- New step events: search_started/completed, extraction_started, intelligence_analysis_started/completed
+- Output includes citations and intelligence_metadata
+
+**Database Migration** (`20260723_0001`)
+- Added `citations` (JSONB) and `intelligence_metadata` (JSONB) to `research_reports`
+- Additive — no existing tables modified
+
+**Improved Outreach Intelligence Brief** (`app/intelligence/outreach_brief.py`)
+- `build()` now accepts optional `account_intelligence` parameter
+- Preferentially uses Account Intelligence fields when available
+
+**Tests (22 new, 178 total)**
+- 7 tests: WebSearchTool
+- 7 tests: WebContentExtractorTool
+- 8 tests: AccountResearchIntelligence
+- All 156 existing tests continue to pass
+
+### Configuration
+```env
+# Search Provider (tavily or simulated)
+SEARCH_PROVIDER=tavily
+TAVILY_API_KEY=tvly-your-key-here
+```
+
+### More details
+See [docs/ACCOUNT_INTELLIGENCE.md](docs/ACCOUNT_INTELLIGENCE.md)
+
+---
+
+## Phase 8 — Demo Scenario ✅
+
+**Completed:** July 24, 2026
+
+**Delivered:** One-click judge demo with dedicated `/demo` endpoint, "Launch Demo Mission" button that seeds data and redirects to dashboard, demo indicator badges on lead detail/outreach/pipeline views, comprehensive `docs/DEMO_SCENARIO.md` with 3-minute judge walkthrough, and a one-command demo launcher CLI.
+
+**All 185 tests passing, lint clean.**
+
+### What was built
+
+**Demo Mode** (`app/main.py` + `app/templates/demo.html`)
+- `GET /demo` — Judge-facing demo introduction page
+- `POST /demo/seed` — One-click data seeding + redirect
+- Sidebar "🎯 Demo Scenario" navigation link
+
+**Demo Indicators** (3 templates)
+- Lead detail, outreach cards, pipeline cards show "🎯 Demo Account"/"🎯 Demo" badge for SkyGrid
+
+**Demo CLI Launcher** (`scripts/demo.py` + `tests/test_demo_script.py`)
+- `python scripts/demo.py` — one-command environment setup + data seeding + verification
+- Checks: Python version, virtual environment, `.env` file, PostgreSQL connection
+- Runs: Alembic migrations + demo seed script (idempotent)
+- Verifies server health (`GET /health`)
+- Prints formatted demo instructions with judge walkthrough and talking points
+- 18 tests covering file structure, functions, output sections, exit codes
+
+**Documentation**
+- `docs/DEMO_SCENARIO.md` — Updated with `python scripts/demo.py` instructions
+- Updated `FREEBUFF_CONTEXT.md`, `ROADMAP.md`, `CODEX_HANDOFF.md`
+
+### Demo flow
+```
+$ python scripts/demo.py
+        ↓
+Environment Check → Database Prep → Server Check → Instructions
+        ↓                           ↓
+   Pass or fail                  /demo flow
+```
+
+
+---
+
 ## Codex Handoff — Final Verification ✅
 
-**Completed:** July 21, 2026 (initial) / July 23, 2026 (updated)
+**Completed:** July 21, 2026 (initial) / July 23, 2026 (updated) / July 24, 2026 (Demo Scenario)
 
-**Delivered:** Project verification, DB fix, inline editor, diff view, extended intelligence diff, lint cleanup, documentation.
+**Delivered:** Project verification, DB fix, inline editor, diff view, extended intelligence diff, Account Intelligence Engine, lint cleanup, documentation.
 
-### What was built (July 23 update)
+### What was built (July 23 updates)
 - Inline editor for outreach email drafts with editable subject/body, revert, character counts
 - Word-level LCS diff view for email drafts
-- Extended diff for all 5 intelligence sections (Company Intelligence + Pain Analysis)
-- Backend merge logic for `edited_intelligence` in `ApproveRequest`
-- 5 new tests for the merge logic
+- Extended diff for all 5 intelligence sections
+- Backend merge logic for `edited_intelligence`
+- **Account Intelligence Engine**: WebSearchTool, WebContentExtractorTool, AccountResearchIntelligence, upgraded ResearchAgent
+- Database migration for citations and intelligence_metadata
+- 22 new tests
 
 ### What was verified
-- PostgreSQL running and migrated to latest (`20260721_0001`)
-- All **156 tests passing** (was 151)
+- PostgreSQL running and migrated to latest (`20260723_0001`)
+- All **178 tests passing** (was 156)
 - Lint clean (ruff pass)
-- Server running on http://localhost:8000
-- All views render without console errors
-- Inline editor + diff + approve flow verified in browser
+- 22 new tests for web search, extraction, and account intelligence
 
 ### Post-Hackathon Ideas
-- Real web search API integration (replace simulated tools)
+- Additional search providers (Google Custom Search, Bing)
+- Deeper HTML extraction with readability/trafilatura
 - Authentication and multi-user support
 - Email sending integration (after human approval)
 - Analytics dashboard with conversion tracking
 - Webhook/notification system for approval events
-- Export outreach history to CSV/PDF

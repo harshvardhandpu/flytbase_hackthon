@@ -9,14 +9,17 @@ from uuid import UUID
 import pytest
 
 from app.agents.inbound import InboundAgent
+from app.config import get_settings
 from app.core.contracts import (
     AgentContext,
+    AgentResult,
     AgentTaskInput,
     AIProvider,
     AIRequest,
     AIResponse,
 )
 from app.core.task_manager import TaskManager
+from app.providers.manager import ProviderManager
 from app.tools.tool_manager import ToolManager
 
 # ── Fake AI Provider ────────────────────────────────────────────────────
@@ -92,6 +95,139 @@ def agent() -> InboundAgent:
 @pytest.fixture
 def context(task_id: UUID) -> AgentContext:
     return AgentContext(task_id=task_id, correlation_id=f"test-{task_id}")
+
+
+# ── Real provider integration test ──────────────────────────────────────
+
+_HAS_LIVE_FREEMODEL = False
+_settings = get_settings()
+if (
+    _settings.ai_provider == "freemodel"
+    and _settings.anthropic_auth_token
+    and _settings.anthropic_auth_token != "replace-me"
+    and _settings.anthropic_base_url
+):
+    _HAS_LIVE_FREEMODEL = True
+
+
+@pytest.mark.skipif(
+    not _HAS_LIVE_FREEMODEL,
+    reason="Requires AI_PROVIDER=freemodel with a live ANTHROPIC_AUTH_TOKEN",
+)
+class TestInboundAgentRealProvider:
+    """Integration tests for InboundAgent with live FreeModelProvider.
+
+    These tests verify the full inbound pipeline with a real LLM:
+    ProviderManager resolves the correct provider, the agent runs
+    intent analysis and reply generation with real LLM calls, and
+    the output contains valid structured analysis.
+
+    Even if the freemodel API is unreachable, the agent falls back
+    gracefully to deterministic output.
+    """
+
+    @staticmethod
+    def _fresh_settings():
+        get_settings.cache_clear()
+        return get_settings()
+
+    def test_resolves_freemodel_provider(self) -> None:
+        """ProviderManager should resolve to FreeModelProvider when configured."""
+        settings = self._fresh_settings()
+        provider = ProviderManager(settings).resolve()
+        assert provider.name == "freemodel"
+
+    @pytest.mark.asyncio
+    async def test_full_workflow_with_real_provider(self) -> None:
+        """Full InboundAgent workflow with real LLM produces valid analysis."""
+        settings = self._fresh_settings()
+        provider = ProviderManager(settings).resolve()
+        tm = MagicMock(spec=TaskManager)
+        tools = MagicMock(spec=ToolManager)
+
+        agent = InboundAgent(ai_provider=provider, tool_manager=tools, task_manager=tm)
+        task_id = uuid.uuid4()
+        context = AgentContext(task_id=task_id, correlation_id="real-inbound-test")
+        task = AgentTaskInput(
+            id=task_id,
+            agent_type="inbound",
+            input_data={
+                "message": {
+                    "from_email": "john@skygrid.io",
+                    "from_name": "John Smith",
+                    "subject": "Demo Request",
+                    "body": "Hi, we'd like to schedule a demo of your drone "
+                    "management platform. We operate 50+ drones for "
+                    "infrastructure inspection.",
+                    "channel": "email",
+                },
+                "lead_context": {},
+            },
+        )
+
+        result = await agent.run(context, task)
+        output = result.output_data
+
+        # Verify result structure — works for both real API and fallback
+        assert isinstance(result, AgentResult)
+        assert "analysis" in output
+        analysis = output["analysis"]
+        assert analysis["intent"] in (
+            "meeting_request", "question", "other", "unknown"
+        )
+        assert analysis["sentiment"] in ("positive", "neutral", "negative")
+        assert analysis["urgency"] in ("high", "medium", "low")
+        assert isinstance(analysis.get("extracted_details", {}), dict)
+
+        assert "lead_action" in output
+        assert output["lead_action"]["action"] in (
+            "create_lead", "update_lead", "no_action"
+        )
+
+        assert output["providers_used"] == "freemodel"
+
+    @pytest.mark.asyncio
+    async def test_real_provider_logs_expected_events(self) -> None:
+        """All expected step events are logged with a real provider."""
+        settings = self._fresh_settings()
+        provider = ProviderManager(settings).resolve()
+        tm = MagicMock(spec=TaskManager)
+        tools = MagicMock(spec=ToolManager)
+
+        agent = InboundAgent(ai_provider=provider, tool_manager=tools, task_manager=tm)
+        task_id = uuid.uuid4()
+        context = AgentContext(task_id=task_id, correlation_id="real-inbound-logs")
+        task = AgentTaskInput(
+            id=task_id,
+            agent_type="inbound",
+            input_data={
+                "message": {
+                    "from_email": "john@skygrid.io",
+                    "from_name": "John Smith",
+                    "subject": "Demo Request",
+                    "body": "Hi, we'd like to schedule a demo of your platform.",
+                    "channel": "email",
+                },
+                "lead_context": {},
+            },
+        )
+
+        await agent.run(context, task)
+
+        assert agent._tm.append_log.call_count >= 4
+        call_events = [
+            c.args[2] if len(c.args) > 2 else ""
+            for c in agent._tm.append_log.call_args_list
+        ]
+        for expected in (
+            "inbound_started",
+            "intent_analysis_started",
+            "intent_analysis_completed",
+            "reply_generation_started",
+            "reply_generation_completed",
+            "inbound_completed",
+        ):
+            assert expected in call_events, f"Missing log event: {expected}"
 
 
 # ── Tests ───────────────────────────────────────────────────────────────

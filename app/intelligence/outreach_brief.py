@@ -22,11 +22,109 @@ class CompanyIntelligenceBriefBuilder:
         company_name: str,
         research: dict[str, Any],
         qualification: dict[str, Any],
+        account_intelligence: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Return a stable brief with evidence traceable to existing inputs."""
-        signals = self._as_strings(research.get("business_signals"))
-        pains = self._as_strings(research.get("pain_points"))
-        technologies = self._as_strings(research.get("technology_signals"))
+        """Return a stable brief with evidence traceable to existing inputs.
+
+        When ``account_intelligence`` is provided (from the Account Intelligence
+        Engine), its richer fields are used directly instead of deriving them
+        from the raw research signals.
+        """
+        if account_intelligence:
+            return self._build_from_intelligence(
+                company_name=company_name,
+                account_intelligence=account_intelligence,
+                qualification=qualification,
+                research=research,
+            )
+
+        return self._build_from_research(
+            company_name=company_name,
+            research=research,
+            qualification=qualification,
+        )
+
+    def _build_from_intelligence(
+        self,
+        *,
+        company_name: str,
+        account_intelligence: dict[str, Any],
+        qualification: dict[str, Any],
+        research: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Build brief using Account Intelligence Engine output."""
+        ai = account_intelligence
+        business_problems = ai.get("business_problems", [])
+        growth_signals = ai.get("growth_signals", [])
+        buying_signals = ai.get("buying_signals", [])
+        technology_signals = ai.get("technology_signals", [])
+        company_situation = ai.get("company_situation", "")
+        flytbase_relevance = ai.get("flytbase_relevance", "")
+        recommended_angle = ai.get("recommended_sales_angle", "")
+        industry_incidents = ai.get("industry_incidents", [])
+        operational_risks = ai.get("operational_risks", [])
+        citations = ai.get("citations", [])
+
+        problems = business_problems or [
+            "Insufficient data — validate fleet coordination and workflow maturity in discovery."  # noqa: E501
+        ]
+        fit = flytbase_relevance or (
+            "FlytBase is relevant when an operator needs centralized visibility, "
+            "remote operations, and repeatable drone workflows."
+        )
+        sales_angle = recommended_angle or self._sales_angle(qualification, problems)
+
+        # Merge buying signals into growth signals for the brief display
+        all_growth = list(dict.fromkeys(growth_signals + buying_signals))
+
+        # Use AI-detected risks or fall back to derived risks
+        risks = operational_risks or self._risks(problems)
+
+        # Use Account Intelligence incidents or fall back to generic ones
+        incidents = industry_incidents or self._incidents(
+            research.get("industry", "drone operations")
+        )
+
+        return {
+            "source": "account_intelligence_engine",
+            "company_situation_summary": company_situation
+            or self._build_situation(company_name, all_growth, technology_signals),
+            "growth_signals": all_growth,
+            "expansion_indicators": [],
+            "technology_adoption_signals": technology_signals,
+            "detected_business_problems": problems,
+            "operational_risks": risks,
+            "flytbase_fit": {
+                "summary": str(fit),
+                "capabilities": [
+                    "Centralized fleet visibility and remote operations",
+                    "Automated mission planning and repeatable workflows",
+                    "API-based integration with operational systems",
+                ],
+            },
+            "recommended_sales_angle": sales_angle,
+            "relevant_incidents": incidents,
+            "citations": citations,
+        }
+
+    def _build_from_research(
+        self,
+        *,
+        company_name: str,
+        research: dict[str, Any],
+        qualification: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Derive brief from research data, preferring Account Intelligence fields if present."""
+        # Prefer Account Intelligence field names over legacy names
+        signals = self._as_strings(
+            research.get("growth_signals") or research.get("business_signals")
+        )
+        pains = self._as_strings(
+            research.get("business_problems") or research.get("pain_points")
+        )
+        technologies = self._as_strings(
+            research.get("technology_signals")
+        )
         growth = self._matching(signals, self._GROWTH_TERMS)
         expansion = self._matching(signals, self._EXPANSION_TERMS)
         operational_changes = [
@@ -34,24 +132,21 @@ class CompanyIntelligenceBriefBuilder:
             if signal not in growth and signal not in expansion
         ]
         problems = pains or [
-            ""
             "The available research does not name a specific operational problem yet. "
             "Validate fleet coordination and workflow maturity in discovery."
         ]
         fit = research.get("flytbase_relevance") or (
-            ""
             "FlytBase is relevant when an operator needs centralized visibility, "
             "remote operations, and repeatable drone workflows."
         )
         sales_angle = self._sales_angle(qualification, problems)
 
-        situation_bits = growth + expansion + operational_changes
-        profile = self._join(situation_bits) or "an operating profile that warrants discovery"
-        footprint = self._join(technologies) or "no confirmed stack signals"
-        situation = (
-            f"{company_name} shows {profile}. "
-            f"Its technology footprint includes {footprint}."
+        situation = self._build_situation(
+            company_name,
+            growth + expansion + operational_changes,
+            technologies,
         )
+
         return {
             "source": "simulated_structured_intelligence",
             "company_situation_summary": situation,
@@ -70,8 +165,21 @@ class CompanyIntelligenceBriefBuilder:
                 ],
             },
             "recommended_sales_angle": sales_angle,
-            "relevant_incidents": self._incidents(research.get("industry", "drone operations")),
+            "relevant_incidents": self._incidents(
+                research.get("industry", "drone operations")
+            ),
         }
+
+    @staticmethod
+    def _build_situation(
+        company_name: str,
+        signals: list[str],
+        technologies: list[str],
+    ) -> str:
+        """Build a company situation summary from signals and technologies."""
+        profile = ", ".join(signals[:3]) if signals else "an operating profile that warrants discovery"  # noqa: E501
+        footprint = ", ".join(technologies[:3]) if technologies else "no confirmed stack signals"
+        return f"{company_name} shows {profile}. Its technology footprint includes {footprint}."
 
     @staticmethod
     def _as_strings(value: Any) -> list[str]:

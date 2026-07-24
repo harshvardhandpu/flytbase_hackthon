@@ -1,3 +1,9 @@
+"""BDR research agent — gathers and synthesises company intelligence.
+
+Upgraded with Account Intelligence Engine integration for deeper,
+more structured company analysis with citation tracking.
+"""
+
 from __future__ import annotations
 
 import json
@@ -15,6 +21,7 @@ from app.core.contracts import (
     ProviderError,
 )
 from app.core.task_manager import TaskManager
+from app.intelligence.account_research import AccountResearchIntelligence
 from app.tools.tool_manager import ToolManager
 
 _PLANNING_SYSTEM_PROMPT = """\
@@ -55,14 +62,15 @@ Use only information present in the search results. Do NOT fabricate data."""
 
 
 class ResearchAgent(BaseAgent):
-    """BDR research agent that gathers and synthesises company intelligence.
+    """BDR research agent with Account Intelligence Engine integration.
 
     Workflow:
     1. Plan search queries via LLM
     2. Execute web search for each query
     3. Extract content from top URLs
-    4. Synthesize findings into a structured BDR report via LLM
-    5. Persist report and update company profile
+    4. Generate account intelligence via AIProvider
+    5. Synthesize findings into structured BDR report
+    6. Persist report with citations and metadata
     """
 
     agent_type = "research"
@@ -76,6 +84,7 @@ class ResearchAgent(BaseAgent):
         self._ai = ai_provider
         self._tools = tool_manager
         self._tm = task_manager
+        self._intelligence = AccountResearchIntelligence(ai_provider)
 
     async def run(self, context: AgentContext, task: AgentTaskInput) -> AgentResult:
         task_id = context.task_id
@@ -85,9 +94,9 @@ class ResearchAgent(BaseAgent):
         # ── Step 1: Start ──────────────────────────────────────────────
         self._tm.append_log(
             task_id, "info", "research_started",
-            f"Starting research for company={company_name!r} domain={domain!r}",
+            f"Starting account intelligence research for {company_name!r} domain={domain!r}",
             {"company_name": company_name, "domain": domain},
-        )  # noqa: E501
+        )
 
         query = company_name or domain
 
@@ -113,7 +122,7 @@ class ResearchAgent(BaseAgent):
 
         for q in search_queries:
             self._tm.append_log(
-                task_id, "debug", "tool_called",
+                task_id, "debug", "search_started",
                 f"Executing web_search for query={q!r}",
                 {"tool": "web_search", "query": q},
             )
@@ -125,7 +134,7 @@ class ResearchAgent(BaseAgent):
                 all_sources.extend(result.sources)
 
                 self._tm.append_log(
-                    task_id, "debug", "tool_completed",
+                    task_id, "debug", "search_completed",
                     f"web_search returned {len(page_results)} results for {q!r}",
                     {"tool": "web_search", "query": q, "result_count": len(page_results)},
                 )
@@ -137,6 +146,12 @@ class ResearchAgent(BaseAgent):
                 )
 
         # ── Step 4: Extract content from top URLs ──────────────────────
+        self._tm.append_log(
+            task_id, "info", "extraction_started",
+            f"Extracting content from {len(all_sources)} sources",
+            {"source_count": len(all_sources)},
+        )
+
         seen_urls: set[str] = set()
         content_texts: list[str] = []
 
@@ -171,7 +186,29 @@ class ResearchAgent(BaseAgent):
                     {"tool": "extract_web_content", "url": source_url, "error": str(exc)},
                 )
 
-        # ── Step 5: Synthesize via LLM ─────────────────────────────────
+        # ── Step 5: Generate Account Intelligence ───────────────────────
+        self._tm.append_log(
+            task_id, "info", "intelligence_analysis_started",
+            "Generating structured account intelligence via AIProvider",
+        )
+
+        intelligence = await self._intelligence.analyze(
+            company_name=company_name,
+            search_results=all_results,
+            extracted_content=content_texts,
+        )
+
+        self._tm.append_log(
+            task_id, "info", "intelligence_analysis_completed",
+            "Account intelligence analysis complete",
+            {
+                "business_problems": len(intelligence.get("business_problems", [])),
+                "growth_signals": len(intelligence.get("growth_signals", [])),
+                "citations": len(intelligence.get("citations", [])),
+            },
+        )
+
+        # ── Step 6: Synthesize via LLM ─────────────────────────────────
         self._tm.append_log(
             task_id, "info", "synthesis_started",
             "Synthesising research data into structured report via LLM",
@@ -185,13 +222,24 @@ class ResearchAgent(BaseAgent):
             task_id=task_id,
         )
 
-        # ── Step 6: Persist report ─────────────────────────────────────
+        # Merge account intelligence into findings for richer output
+        findings.setdefault("business_signals", intelligence.get("growth_signals", []))
+        findings.setdefault("pain_points", intelligence.get("business_problems", []))
+        findings.setdefault("technology_signals", intelligence.get("technology_signals", []))
+        if not findings.get("flytbase_relevance"):
+            findings["flytbase_relevance"] = intelligence.get("flytbase_relevance")
+        if not findings.get("recommended_next_action"):
+            findings["recommended_next_action"] = intelligence.get("recommended_sales_angle")
+
+        citations = intelligence.get("citations", [])
+
+        # ── Step 7: Persist report ─────────────────────────────────────
         report_id = uuid.uuid4()
 
         self._tm.append_log(
             task_id, "info", "report_created",
-            f"Research report created (id={report_id})",
-            {"report_id": str(report_id)},
+            f"Research report created (id={report_id}) with {len(citations)} citations",
+            {"report_id": str(report_id), "citation_count": len(citations)},
         )
 
         summary = findings.get("description", f"Research completed for {company_name or domain}")
@@ -208,19 +256,36 @@ class ResearchAgent(BaseAgent):
             "flytbase_relevance": findings.get("flytbase_relevance"),
             "recommended_next_action": findings.get("recommended_next_action"),
             "sources": findings.get("sources", all_sources),
+            # Account Intelligence enriched fields
+            "company_situation": intelligence.get("company_situation", ""),
+            "growth_signals": intelligence.get("growth_signals", []),
+            "buying_signals": intelligence.get("buying_signals", []),
+            "operational_risks": intelligence.get("operational_risks", []),
+            "industry_incidents": intelligence.get("industry_incidents", []),
         }
 
         output_data: dict[str, Any] = {
             "report_id": str(report_id),
             "findings": report_data,
+            "citations": citations,
+            "intelligence_metadata": {
+                "analysis_version": "1.0",
+                "search_count": len(search_queries),
+                "source_count": len(all_sources),
+                "extraction_count": len(content_texts),
+            },
             "providers_used": getattr(self._ai, "name", "unknown"),
         }
 
-        # ── Step 7: Complete ────────────────────────────────────────────
+        # ── Step 8: Complete ────────────────────────────────────────────
         self._tm.append_log(
             task_id, "info", "task_completed",
-            f"Research completed for {company_name or domain}",
-            {"report_id": str(report_id), "source_count": len(all_sources)},
+            f"Account intelligence research completed for {company_name or domain}",
+            {
+                "report_id": str(report_id),
+                "source_count": len(all_sources),
+                "citation_count": len(citations),
+            },
         )
 
         return AgentResult(
@@ -343,7 +408,7 @@ def _parse_json_list(text: str) -> list[str]:
     end = cleaned.rfind("]")
     if start != -1 and end > start:
         try:
-            parsed = json.loads(cleaned[start : end + 1])
+            parsed = json.loads(cleaned[start: end + 1])
             if isinstance(parsed, list):
                 return [str(item) for item in parsed if item]
         except json.JSONDecodeError:
@@ -364,7 +429,7 @@ def _parse_json_object(text: str) -> dict[str, Any] | None:
     end = cleaned.rfind("}")
     if start != -1 and end > start:
         try:
-            parsed = json.loads(cleaned[start : end + 1])
+            parsed = json.loads(cleaned[start: end + 1])
             if isinstance(parsed, dict):
                 return parsed
         except json.JSONDecodeError:

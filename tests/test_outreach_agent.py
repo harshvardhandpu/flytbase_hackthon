@@ -6,7 +6,10 @@ from unittest.mock import MagicMock
 import pytest
 
 from app.agents.outreach import OutreachAgent, _parse_json_object
-from app.core.contracts import AgentContext, AgentTaskInput, AIRequest, AIResponse
+from app.config import get_settings
+from app.core.contracts import AgentContext, AgentResult, AgentTaskInput, AIRequest, AIResponse
+from app.intelligence import CompanyIntelligenceBriefBuilder
+from app.providers.manager import ProviderManager
 
 # ── helpers ────────────────────────────────────────────────────────────
 
@@ -283,6 +286,137 @@ class TestOutreachAgent:
         assert isinstance(output["email_draft"], dict)
         assert output["requires_human_approval"] is True
         assert output["providers_used"] == "test-provider"
+
+
+# ── Real provider integration test ──────────────────────────────────────
+
+_HAS_LIVE_FREEMODEL = False
+_settings = get_settings()
+if (
+    _settings.ai_provider == "freemodel"
+    and _settings.anthropic_auth_token
+    and _settings.anthropic_auth_token != "replace-me"
+    and _settings.anthropic_base_url
+):
+    _HAS_LIVE_FREEMODEL = True
+
+
+@pytest.mark.skipif(
+    not _HAS_LIVE_FREEMODEL,
+    reason="Requires AI_PROVIDER=freemodel with a live ANTHROPIC_AUTH_TOKEN",
+)
+class TestOutreachAgentRealProvider:
+    """Integration tests for OutreachAgent with live FreeModelProvider.
+
+    These tests verify the full outreach pipeline with a real LLM:
+    ProviderManager resolves the correct provider, the agent runs
+    strategy generation, personalization, and draft generation with
+    real LLM calls, and the output contains valid structured outreach.
+
+    Uses sample research and qualification data as input. Even if the
+    freemodel API is unreachable, the agent falls back gracefully.
+    """
+
+    @staticmethod
+    def _fresh_settings():
+        get_settings.cache_clear()
+        return get_settings()
+
+    def test_resolves_freemodel_provider(self) -> None:
+        """ProviderManager should resolve to FreeModelProvider when configured."""
+        settings = self._fresh_settings()
+        provider = ProviderManager(settings).resolve()
+        assert provider.name == "freemodel"
+
+    @pytest.mark.asyncio
+    async def test_full_workflow_with_real_provider(self) -> None:
+        """Full OutreachAgent workflow with real LLM produces valid outreach."""
+        settings = self._fresh_settings()
+        provider = ProviderManager(settings).resolve()
+        tm = make_fake_tm()
+
+        agent = OutreachAgent(
+            ai_provider=provider,
+            tool_manager=MagicMock(),
+            task_manager=tm,
+            intelligence_builder=CompanyIntelligenceBriefBuilder(),
+        )
+        context = AgentContext(task_id=uuid.uuid4(), correlation_id="real-outreach-test")
+        task = AgentTaskInput(
+            id=uuid.uuid4(),
+            agent_type="outreach",
+            input_data={
+                "company_name": "SkyGrid Inc.",
+                "research_findings": SAMPLE_RESEARCH,
+                "qualification": SAMPLE_QUALIFICATION,
+            },
+        )
+
+        result = await agent.run(context, task)
+        output = result.output_data
+
+        # Verify result structure — works for both real API and fallback
+        assert isinstance(result, AgentResult)
+        assert "outreach_strategy" in output
+        strat = output["outreach_strategy"]
+        assert strat["recommended_channel"] in ("email", "linkedin", "phone")
+        assert strat["urgency"] in ("Immediate", "This week", "This month")
+        assert isinstance(strat.get("reasoning", ""), str)
+
+        assert "personalization" in output
+        pers = output["personalization"]
+        assert "company_hook" in pers
+        assert "detected_pain_point" in pers
+        assert "flytbase_value_proposition" in pers
+
+        assert "email_draft" in output
+        draft = output["email_draft"]
+        assert "subject" in draft
+        assert "body" in draft
+
+        assert "company_intelligence" in output
+        assert output["requires_human_approval"] is True
+        assert output["providers_used"] == "freemodel"
+
+    @pytest.mark.asyncio
+    async def test_real_provider_logs_expected_events(self) -> None:
+        """All expected step events are logged with a real provider."""
+        settings = self._fresh_settings()
+        provider = ProviderManager(settings).resolve()
+        tm = make_fake_tm()
+
+        agent = OutreachAgent(
+            ai_provider=provider,
+            tool_manager=MagicMock(),
+            task_manager=tm,
+            intelligence_builder=CompanyIntelligenceBriefBuilder(),
+        )
+        context = AgentContext(task_id=uuid.uuid4(), correlation_id="real-outreach-logs")
+        task = AgentTaskInput(
+            id=uuid.uuid4(),
+            agent_type="outreach",
+            input_data={
+                "company_name": "SkyGrid Inc.",
+                "research_findings": SAMPLE_RESEARCH,
+                "qualification": SAMPLE_QUALIFICATION,
+            },
+        )
+
+        await agent.run(context, task)
+
+        events = logged_event_types(tm)
+        for expected in (
+            "outreach_started",
+            "context_loaded",
+            "strategy_generation_started",
+            "strategy_generation_completed",
+            "personalization_started",
+            "personalization_completed",
+            "draft_generation_started",
+            "draft_generation_completed",
+            "outreach_completed",
+        ):
+            assert expected in events, f"Missing log event: {expected}"
 
 
 # ── JSON parsing tests ────────────────────────────────────────────────

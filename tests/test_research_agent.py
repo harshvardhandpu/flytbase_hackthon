@@ -6,7 +6,9 @@ from unittest.mock import MagicMock
 import pytest
 
 from app.agents.research import ResearchAgent, _parse_json_list, _parse_json_object
-from app.core.contracts import AgentContext, AgentTaskInput, AIRequest, AIResponse
+from app.config import get_settings
+from app.core.contracts import AgentContext, AgentResult, AgentTaskInput, AIRequest, AIResponse
+from app.providers.manager import ProviderManager
 from app.tools import SimulatedContentExtractorTool, SimulatedWebSearchTool, ToolManager
 
 # ── helpers ────────────────────────────────────────────────────────────
@@ -240,3 +242,121 @@ class TestResearchAgent:
         assert "tool_failed" in events, (
             f"Expected 'tool_failed' in logged events, got: {events}"
         )
+
+
+# ── Real provider integration test ──────────────────────────────────────
+
+_HAS_LIVE_FREEMODEL = False
+_settings = get_settings()
+if (
+    _settings.ai_provider == "freemodel"
+    and _settings.anthropic_auth_token
+    and _settings.anthropic_auth_token != "replace-me"
+    and _settings.anthropic_base_url
+):
+    _HAS_LIVE_FREEMODEL = True
+
+
+@pytest.mark.skipif(
+    not _HAS_LIVE_FREEMODEL,
+    reason="Requires AI_PROVIDER=freemodel with a live ANTHROPIC_AUTH_TOKEN",
+)
+class TestResearchAgentRealProvider:
+    """Integration tests that call the real FreeModelProvider via ProviderManager.
+
+    These tests verify the ResearchAgent full pipeline with a live LLM:
+    ProviderManager resolves the correct provider, the agent runs planning,
+    search, extraction, intelligence analysis, and synthesis with real LLM
+    calls, and the output contains valid structured research.
+
+    Uses simulated search/extraction tools so the LLM has predictable data
+    to work with. Even if the freemodel API is unreachable, the agent
+    gracefully falls back to deterministic output.
+    """
+
+    @staticmethod
+    def _fresh_settings():
+        get_settings.cache_clear()
+        return get_settings()
+
+    def test_resolves_freemodel_provider(self) -> None:
+        """ProviderManager should resolve to FreeModelProvider when configured."""
+        settings = self._fresh_settings()
+        provider = ProviderManager(settings).resolve()
+        assert provider.name == "freemodel"
+
+    @pytest.mark.asyncio
+    async def test_full_workflow_with_real_provider(self) -> None:
+        """Full ResearchAgent workflow with real LLM produces structured output."""
+        settings = self._fresh_settings()
+        provider = ProviderManager(settings).resolve()
+        tools = ToolManager([SimulatedWebSearchTool(), SimulatedContentExtractorTool()])
+        tm = make_fake_tm()
+
+        agent = ResearchAgent(ai_provider=provider, tool_manager=tools, task_manager=tm)
+        context = AgentContext(task_id=uuid.uuid4(), correlation_id="real-provider-test")
+        task = AgentTaskInput(
+            id=uuid.uuid4(),
+            agent_type="research",
+            input_data={"company_name": "FlytBase", "domain": "flytbase.com"},
+        )
+
+        result = await agent.run(context, task)
+
+        # Verify result structure — works for both real API and fallback
+        assert isinstance(result, AgentResult)
+        assert result.summary is not None
+        assert len(result.summary) > 0
+        assert "report_id" in result.output_data
+        assert "findings" in result.output_data
+        assert not result.requires_human_approval
+
+        findings = result.output_data["findings"]
+        assert "company_name" in findings
+        assert "industry" in findings
+        assert "description" in findings
+        assert isinstance(findings.get("business_signals"), list)
+        assert isinstance(findings.get("pain_points"), list)
+        assert isinstance(findings.get("technology_signals"), list)
+        assert isinstance(findings.get("sources"), list)
+
+        # Account Intelligence enriched fields
+        assert "company_situation" in findings
+        assert "growth_signals" in findings
+        assert "buying_signals" in findings
+        assert "operational_risks" in findings
+        assert "industry_incidents" in findings
+
+        assert "citations" in result.output_data
+        assert isinstance(result.output_data["citations"], list)
+
+    @pytest.mark.asyncio
+    async def test_real_provider_logs_expected_events(self) -> None:
+        """All expected step events are logged with a real provider."""
+        settings = self._fresh_settings()
+        provider = ProviderManager(settings).resolve()
+        tools = ToolManager([SimulatedWebSearchTool(), SimulatedContentExtractorTool()])
+        tm = make_fake_tm()
+
+        agent = ResearchAgent(ai_provider=provider, tool_manager=tools, task_manager=tm)
+        context = AgentContext(task_id=uuid.uuid4(), correlation_id="real-provider-logs")
+        task = AgentTaskInput(
+            id=uuid.uuid4(),
+            agent_type="research",
+            input_data={"company_name": "FlytBase", "domain": "flytbase.com"},
+        )
+
+        await agent.run(context, task)
+
+        events = logged_event_types(tm)
+        for expected in (
+            "research_started",
+            "planning_started",
+            "planning_completed",
+            "intelligence_analysis_started",
+            "intelligence_analysis_completed",
+            "synthesis_started",
+            "report_created",
+            "task_completed",
+        ):
+            assert expected in events, f"Missing log event: {expected}"

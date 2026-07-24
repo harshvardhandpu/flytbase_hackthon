@@ -9,14 +9,17 @@ from uuid import UUID
 import pytest
 
 from app.agents.pipeline import PipelineAgent, _compute_stage_health, _compute_stagnation_risk
+from app.config import get_settings
 from app.core.contracts import (
     AgentContext,
+    AgentResult,
     AgentTaskInput,
     AIProvider,
     AIRequest,
     AIResponse,
 )
 from app.core.task_manager import TaskManager
+from app.providers.manager import ProviderManager
 from app.tools.tool_manager import ToolManager
 
 # ── Fake AI Provider ────────────────────────────────────────────────────
@@ -88,6 +91,144 @@ class TestStagnationRisk:
 
     def test_moderate_no_engagement(self):
         assert _compute_stagnation_risk(18, 0) == "moderate"
+
+
+# ── Real provider integration test ──────────────────────────────────────
+
+_HAS_LIVE_FREEMODEL = False
+_settings = get_settings()
+if (
+    _settings.ai_provider == "freemodel"
+    and _settings.anthropic_auth_token
+    and _settings.anthropic_auth_token != "replace-me"
+    and _settings.anthropic_base_url
+):
+    _HAS_LIVE_FREEMODEL = True
+
+
+@pytest.mark.skipif(
+    not _HAS_LIVE_FREEMODEL,
+    reason="Requires AI_PROVIDER=freemodel with a live ANTHROPIC_AUTH_TOKEN",
+)
+class TestPipelineAgentRealProvider:
+    """Integration tests for PipelineAgent with live FreeModelProvider.
+
+    These tests verify the full pipeline evaluation with a real LLM:
+    ProviderManager resolves the correct provider, the agent runs
+    deterministic stage analysis + LLM evaluation with real calls,
+    and the output contains valid structured recommendations.
+
+    Even if the freemodel API is unreachable, the agent falls back
+    gracefully to deterministic output.
+    """
+
+    @staticmethod
+    def _fresh_settings():
+        get_settings.cache_clear()
+        return get_settings()
+
+    def test_resolves_freemodel_provider(self) -> None:
+        """ProviderManager should resolve to FreeModelProvider when configured."""
+        settings = self._fresh_settings()
+        provider = ProviderManager(settings).resolve()
+        assert provider.name == "freemodel"
+
+    @pytest.mark.asyncio
+    async def test_full_workflow_with_real_provider(self) -> None:
+        """Full PipelineAgent workflow with real LLM produces valid evaluation."""
+        settings = self._fresh_settings()
+        provider = ProviderManager(settings).resolve()
+        tm = MagicMock(spec=TaskManager)
+        tools = MagicMock(spec=ToolManager)
+
+        agent = PipelineAgent(ai_provider=provider, tool_manager=tools, task_manager=tm)
+        task_id = uuid.uuid4()
+        context = AgentContext(task_id=task_id, correlation_id="real-pipeline-test")
+        task = AgentTaskInput(
+            id=task_id,
+            agent_type="pipeline",
+            input_data={
+                "lead_id": str(uuid.uuid4()),
+                "current_stage": "outreach",
+                "days_in_stage": 14,
+                "aggregated_data": {
+                    "research_task": {
+                        "status": "completed",
+                        "findings": {"industry": "Drone Services"},
+                    },
+                    "qualification_results": [
+                        {"overall_score": 85, "priority": "HOT"}
+                    ],
+                    "outreach_drafts": [
+                        {"status": "approved", "urgency": "Immediate"}
+                    ],
+                    "inbound_messages": [],
+                    "conversations": [],
+                },
+            },
+        )
+
+        result = await agent.run(context, task)
+        output = result.output_data
+
+        # Verify result structure — works for both real API and fallback
+        assert isinstance(result, AgentResult)
+        assert "evaluation" in output
+        eval_data = output["evaluation"]
+        assert eval_data["current_stage"] == "outreach"
+        assert eval_data["stage_health"] in ("healthy", "stale", "critical")
+        assert eval_data["stagnation_risk"] in ("low", "moderate", "high")
+
+        assert "lead_health" in output
+        health = output["lead_health"]
+        assert health["overall_health"] in ("good", "fair", "poor")
+        assert isinstance(health.get("engagement_level"), str)
+
+        assert "recommended_action" in output
+        action = output["recommended_action"]
+        assert "type" in action
+        assert "channel" in action
+        assert "priority" in action
+        assert "action" in action
+        assert output["providers_used"] == "freemodel"
+
+    @pytest.mark.asyncio
+    async def test_real_provider_logs_expected_events(self) -> None:
+        """All expected step events are logged with a real provider."""
+        settings = self._fresh_settings()
+        provider = ProviderManager(settings).resolve()
+        tm = MagicMock(spec=TaskManager)
+        tools = MagicMock(spec=ToolManager)
+
+        agent = PipelineAgent(ai_provider=provider, tool_manager=tools, task_manager=tm)
+        task_id = uuid.uuid4()
+        context = AgentContext(task_id=task_id, correlation_id="real-pipeline-logs")
+        task = AgentTaskInput(
+            id=task_id,
+            agent_type="pipeline",
+            input_data={
+                "lead_id": str(uuid.uuid4()),
+                "current_stage": "outreach",
+                "days_in_stage": 10,
+                "aggregated_data": {},
+            },
+        )
+
+        await agent.run(context, task)
+
+        assert agent._tm.append_log.call_count >= 3
+        call_events = [
+            c.args[2] if len(c.args) > 2 else ""
+            for c in agent._tm.append_log.call_args_list
+        ]
+        for expected in (
+            "pipeline_evaluation_started",
+            "lead_data_aggregated",
+            "deterministic_analysis_completed",
+            "llm_evaluation_completed",
+            "pipeline_evaluation_completed",
+        ):
+            assert expected in call_events, f"Missing log event: {expected}"
 
 
 # ── Fixtures ────────────────────────────────────────────────────────────

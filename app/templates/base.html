@@ -41,6 +41,16 @@
           ("/activity", "⚡", "Activity", "activity"),
         ] %}
 
+        <!-- Demo scenario link -->
+        <a href="/demo"
+           class="nav-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 mt-4
+                  bg-amber-500/5 text-amber-400 border border-amber-500/10 hover:bg-amber-500/10 hover:border-amber-500/20"
+           x-data
+           :class="{ 'bg-amber-500/10 text-amber-400 border border-amber-500/20': window.location.pathname === '/demo' }">
+          <span class="text-lg flex-shrink-0">🎯</span>
+          <span>Demo Scenario</span>
+        </a>
+
         {% for href, icon, label, id in nav_items %}
         <a href="{{ href }}"
            class="nav-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200
