@@ -8,7 +8,10 @@ from app.db import models  # noqa: F401
 from app.db.base import Base
 
 config = context.config
-config.set_main_option("sqlalchemy.url", get_settings().database_url)
+# Settings normalizes Railway's `postgresql://` URL to SQLAlchemy's psycopg
+# v3 dialect (`postgresql+psycopg://`) before Alembic creates its engine.
+database_url = get_settings().database_url
+config.set_main_option("sqlalchemy.url", database_url)
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
