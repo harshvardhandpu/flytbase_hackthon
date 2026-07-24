@@ -632,10 +632,37 @@ One-command demo launcher:
 ```bash
 cd /home/harshdev/flytbase_hackthon
 source .venv/bin/activate
-uvicorn app.main:app --reload
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+# Open http://localhost:8000/demo
 ```
 
 See `docs/CODEX_HANDOFF.md` for comprehensive continuation instructions.
+
+---
+
+## Final Hackathon Release (July 24, 2026)
+
+**Release Tag:** `hackathon-final-v1`
+**Commit:** `89ba427`
+
+### Release Verification
+- **Tests:** 204 passed, 0 failed, 18 skipped
+- **Lint:** Clean (ruff passes with no errors)
+- **Demo Script:** `python scripts/demo.py` — all environment checks pass, DB prep completes, server verified
+- **Browser:** All 9 views verified (landing, demo, dashboard, leads, lead detail, outreach, inbound, pipeline, activity) — zero console errors
+- **Security:** No secrets in repository, `.env` gitignored, `.env.example` uses placeholders
+- **Branches:** `main` and `feature/account-intelligence-engine` in sync
+- **Tags:** `hackathon-final-v1` pushed to remote
+
+### Quick Start
+```bash
+# One-command demo launcher
+python scripts/demo.py
+
+# Or manual:
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+# Open http://localhost:8000/demo
+```
 
 ## Do not change
 

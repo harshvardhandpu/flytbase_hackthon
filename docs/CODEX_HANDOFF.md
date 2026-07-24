@@ -267,3 +267,17 @@ print('OK')
 alembic upgrade head
 alembic history
 ```
+
+---
+
+## Release Information (July 24, 2026)
+
+- **Release Tag:** `hackathon-final-v1`
+- **Commit Hash:** `89ba427`
+- **Branches:** `main` (merged) + `feature/account-intelligence-engine` (feature branch)
+- **Tests:** 204 passed, 0 failed, 18 skipped
+- **Lint:** Clean
+- **Demo URL:** http://localhost:8000/demo
+- **Seed Script:** `python scripts/seed_demo_data.py`
+- **Demo Script:** `python scripts/demo.py`
+- **Known Blockers:** None
