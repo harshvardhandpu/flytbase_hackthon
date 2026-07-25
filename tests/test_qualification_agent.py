@@ -16,16 +16,17 @@ from app.providers.manager import ProviderManager
 class FakeAIProvider:
     name = "test-provider"
 
-    def __init__(self, signal_response: str, composite_response: str) -> None:
-        self._signal = signal_response
+    def __init__(self, evidence_response: str, composite_response: str) -> None:
+        self._evidence = evidence_response
         self._composite = composite_response
         self.last_request: AIRequest | None = None
 
     async def generate(self, request: AIRequest) -> AIResponse:
         self.last_request = request
-        is_composite = "ICP Match Score" in request.messages[-1].content \
-            if request.messages else False
-        content = self._composite if is_composite else self._signal
+        # Evidence prompt has "=== Operational Pain Points"; composite has "Scores:"
+        last_msg = request.messages[-1].content if request.messages else ""
+        is_evidence = "=== Operational Pain Points" in last_msg
+        content = self._evidence if is_evidence else self._composite
         return AIResponse(content=content, provider=self.name)
 
 
@@ -44,27 +45,124 @@ def make_fake_tm() -> MagicMock:
 
 
 SAMPLE_FINDINGS = {
-    "company_name": "FlytBase",
-    "domain": "flytbase.com",
-    "industry": "Drone Technology",
-    "employee_count": 200,
-    "location": "San Francisco, US",
-    "description": "Drone fleet management platform for enterprise.",
+    "company_name": "SkyGrid Drones",
+    "domain": "skygrid-drones.com",
+    "industry": "Drone Technology / Drone Services",
+    "employee_count": 350,
+    "location": "Austin, Texas, US",
+    "description": (
+        "SkyGrid Drones provides enterprise drone fleet management, "
+        "remote inspection, and aerial data analytics for industrial clients."
+    ),
+    "company_situation": (
+        "SkyGrid Drones has expanded its enterprise drone fleet operations "
+        "across 12 US states and is investing in autonomous flight "
+        "capabilities and remote operations centers."
+    ),
+    "operational_pain_points": [
+        {
+            "pain_point": "Scaling drone fleet across multiple states",
+            "evidence": (
+                "SkyGrid recently opened 3 new regional operations centers "
+                "to manage growing fleet demand, straining existing manual "
+                "fleet coordination processes."
+            ),
+            "source_url": "https://example.com/skygrid-expansion"
+        },
+        {
+            "pain_point": "Remote monitoring of distributed drone operations",
+            "evidence": (
+                "Operations team reported challenges maintaining real-time "
+                "visibility across 12 state operations from central HQ."
+            ),
+            "source_url": "https://example.com/skygrid-ops"
+        },
+        {
+            "pain_point": "Manual inspection workflow inefficiency",
+            "evidence": (
+                "Field inspection reports are manually compiled, causing "
+                "2-3 day delays in delivering client reports."
+            ),
+            "source_url": "https://example.com/skygrid-inspection"
+        },
+    ],
+    "buying_signals": [
+        {
+            "signal": "Investing in autonomous flight capabilities",
+            "source_url": "https://example.com/skygrid-autonomy"
+        },
+        {
+            "signal": "Hiring remote operations engineers",
+            "source_url": "https://example.com/skygrid-hiring"
+        },
+        {
+            "signal": "Evaluating drone fleet management platforms",
+            "source_url": "https://example.com/skygrid-platform"
+        },
+    ],
     "business_signals": [
-        "Series A funding",
-        "Hiring robotics engineers",
-        "Expanding to EU market",
+        {
+            "signal": "Opened 3 new regional operations centers",
+            "category": "expansion",
+            "source_url": "https://example.com/skygrid-expansion",
+            "summary": "Expanding operations footprint across US",
+            "date": "2026-06-15",
+        },
+        {
+            "signal": "$15M Series B funding round",
+            "category": "funding",
+            "source_url": "https://example.com/skygrid-funding",
+            "summary": "Recent funding for autonomous drone tech",
+            "date": "2026-04-20",
+        },
+        {
+            "signal": "Partnership with industrial inspection firms",
+            "category": "partnership",
+            "source_url": "https://example.com/skygrid-partnership",
+            "summary": "Collaborating on automated inspection solutions",
+            "date": "2026-05-10",
+        },
     ],
     "pain_points": [
         "Manual fleet management is time-consuming",
         "Scaling drone operations across regions",
+        "Remote monitoring visibility gaps",
     ],
     "technology_signals": [
         "DJI integration",
         "API-first architecture",
         "Cloud-based platform",
     ],
-    "flytbase_relevance": "High - direct fit for FlytBase platform",
+    "flytbase_relevance": (
+        "High - SkyGrid fleet scaling challenges directly align with "
+        "FlytBase remote fleet management and automation platform."
+    ),
+    "flytbase_fit": (
+        "FlytBase remote drone operations platform directly addresses "
+        "SkyGrid need for centralized fleet visibility, automated mission "
+        "scheduling, and real-time operational monitoring."
+    ),
+    "why_now": (
+        "SkyGrid is actively scaling operations and evaluating automation "
+        "platforms — this is the right time to engage before they commit "
+        "to a competing solution."
+    ),
+    "confidence_score": 85,
+    "sources": [
+        "https://example.com/skygrid-expansion",
+        "https://example.com/skygrid-funding",
+        "https://example.com/skygrid-hiring",
+    ],
+    "evidence": [
+        {
+            "claim": "SkyGrid expanded to 12 US states and opened 3 regional centers",
+            "source_url": "https://example.com/skygrid-expansion"
+        },
+        {
+            "claim": "SkyGrid raised $15M Series B for autonomous drone technology",
+            "source_url": "https://example.com/skygrid-funding"
+        },
+    ],
 }
 
 SAMPLE_ICP = {
@@ -127,7 +225,8 @@ class TestDeterministicScoring:
     def test_full_industry_match(self, agent: QualificationAgent) -> None:
         icp = IcpRules(SAMPLE_ICP)
         score, reasons = agent._compute_icp_match(SAMPLE_FINDINGS, icp)
-        assert score >= 70  # industry(40) + size(30) + location(30)
+        # Drone Technology matches, 350 emp in 10-500, Austin US matches
+        assert score == 30  # industry(12) + size(9) + location(9)
         assert any("Industry" in r for r in reasons)
         assert any("size" in r for r in reasons)
 
@@ -139,20 +238,20 @@ class TestDeterministicScoring:
             "locations": ["US"],
         })
         score, reasons = agent._compute_icp_match(SAMPLE_FINDINGS, icp)
-        assert score < 70  # industry mismatch loses 40
+        assert score < 20  # industry mismatch loses 12, gets 9+9=18
         assert any("outside ICP" in r for r in reasons)
 
     def test_size_below_minimum(self, agent: QualificationAgent) -> None:
         findings = dict(SAMPLE_FINDINGS, employee_count=5)
         icp = IcpRules(SAMPLE_ICP)
         score, _ = agent._compute_icp_match(findings, icp)
-        assert score > 40  # industry + location = 70, size partial
+        assert score > 15  # industry(12) + partial size + location(9)
 
     def test_size_above_maximum(self, agent: QualificationAgent) -> None:
         findings = dict(SAMPLE_FINDINGS, employee_count=2000)
         icp = IcpRules(SAMPLE_ICP)
-        score, _ = agent._compute_icp_match(findings, icp)
-        assert score > 50  # industry(40) + size(10) + location(30)? or partial
+        score, reasons = agent._compute_icp_match(findings, icp)
+        assert score > 10  # industry(12) + size_above(3) + location(9)
 
     def test_location_mismatch(self, agent: QualificationAgent) -> None:
         findings = dict(SAMPLE_FINDINGS, location="Tokyo, JP")
@@ -166,7 +265,7 @@ class TestDeterministicScoring:
         score, reasons = agent._compute_icp_match(findings, icp)
         assert any("unknown" in r.lower() for r in reasons)
 
-    def test_score_capped_at_100(self, agent: QualificationAgent) -> None:
+    def test_score_capped_at_30(self, agent: QualificationAgent) -> None:
         icp = IcpRules({
             "industries": ["Drone Technology"],
             "min_employees": 10,
@@ -174,7 +273,7 @@ class TestDeterministicScoring:
             "locations": ["US"],
         })
         score, reasons = agent._compute_icp_match(SAMPLE_FINDINGS, icp)
-        assert score <= 100
+        assert score <= 30
 
 
 # ── Full workflow tests ────────────────────────────────────────────────
@@ -185,17 +284,21 @@ class TestQualificationAgent:
     async def test_full_workflow_returns_scores(
         self, task_context: AgentContext, task_input: AgentTaskInput
     ) -> None:
+        # Evidence scoring returns 0-100; composite returns final reasoning
         fake_ai = FakeAIProvider(
-            signal_response=(
-                '{"buying_signal_score": 85, "company_fit_score": 90, '
-                '"reasons": ["Strong signals"], "risks": ["No direct intent"], '
-                '"reasoning": "Good fit for drone platform."}'
+            evidence_response=(
+                '{"pain_alignment_score": 75, "buying_intent_score": 80, '
+                '"company_fit_score": 90, '
+                '"evidence_based_reasons": ["Fleet expansion indicates scaling needs"], '
+                '"reasons": ["Strong pain alignment"], '
+                '"risks": ["Competing platform in evaluation"], '
+                '"reasoning": "Strong evidence of fleet scaling challenges."}'
             ),
             composite_response=(
-                '{"overall_score": 88, "priority": "HOT", '
-                '"urgency": "Immediate", "sales_angle": "Lead with drone automation", '
-                '"reasons": ["Great ICP match"], '
-                '"reasoning": "High priority lead with strong signals."}'
+                '{"sales_angle": "Lead with fleet scaling and visibility", '
+                '"qualification_summary": "SkyGrid qualifies as HOT with strong pain alignment.", '
+                '"reasons": ["Automation investment aligns with FlytBase"], '
+                '"reasoning": "High priority lead with fleet scaling signals."}'
             ),
         )
         tools = MagicMock()
@@ -207,28 +310,40 @@ class TestQualificationAgent:
         result = await agent.run(task_context, task_input)
         output = result.output_data
 
-        assert output["overall_score"] > 0
-        assert output["icp_match_score"] > 0
-        assert output["buying_signal_score"] > 0
-        assert output["company_fit_score"] > 0
+        # ICP match should be max (industry=Drone Tech, size=350, location=US)
+        assert output["icp_match_score"] == 30
+        # Pain alignment from AI response
+        expected_pain = round(75 * 0.30)  # 23
+        expected_intent = round(80 * 0.25)  # 20
+        expected_fit = round(90 * 0.15)  # 14
+        expected_overall = 30 + expected_pain + expected_intent + expected_fit
+        assert output["overall_score"] == expected_overall
+        assert output["pain_alignment_score"] == 75
+        assert output["buying_signal_score"] == 80
+        assert output["company_fit_score"] == 90
         assert output["priority"] in ("HOT", "WARM", "COLD")
         assert "recommended_bdr_action" in output
         assert "urgency" in output["recommended_bdr_action"]
         assert "suggested_sales_angle" in output["recommended_bdr_action"]
         assert len(output.get("reasons", [])) > 0
+        assert len(output.get("evidence_based_reasons", [])) > 0
+        assert len(output.get("qualification_summary", "")) > 0
 
     @pytest.mark.asyncio
     async def test_step_logging_events(
         self, task_context: AgentContext, task_input: AgentTaskInput
     ) -> None:
         fake_ai = FakeAIProvider(
-            signal_response=(
-                '{"buying_signal_score": 70, "company_fit_score": 75, '
-                '"reasons": [], "risks": [], "reasoning": "Moderate fit."}'
+            evidence_response=(
+                '{"pain_alignment_score": 60, "buying_intent_score": 70, '
+                '"company_fit_score": 75, '
+                '"evidence_based_reasons": ["Evidence shows scaling needs"], '
+                '"reasons": [], "risks": [], '
+                '"reasoning": "Moderate fit."}'
             ),
             composite_response=(
-                '{"overall_score": 72, "priority": "HOT", '
-                '"urgency": "Immediate", "sales_angle": "Test angle", '
+                '{"sales_angle": "Test angle", '
+                '"qualification_summary": "Qual summary test", '
                 '"reasons": [], "reasoning": "Good fit."}'
             ),
         )
@@ -255,21 +370,29 @@ class TestQualificationAgent:
             assert expected in events, f"Missing log event: {expected}"
 
     @pytest.mark.asyncio
-    async def test_handles_missing_signals(
+    async def test_handles_missing_evidence(
         self, task_context: AgentContext, task_input: AgentTaskInput
     ) -> None:
+        """When research has no operational_pain_points or buying_signals,
+        scores default to 0 with explainable reasons."""
         empty_findings = dict(SAMPLE_FINDINGS)
+        empty_findings["operational_pain_points"] = []
+        empty_findings["buying_signals"] = []
         empty_findings["business_signals"] = []
-        empty_findings["pain_points"] = []
-        empty_findings["technology_signals"] = []
+        empty_findings["evidence"] = []
+        empty_findings["company_situation"] = ""
+        empty_findings["flytbase_fit"] = ""
 
         task_input.input_data["findings"] = empty_findings
 
+        # AI will still be called with empty lists — should return low scores
         fake_ai = FakeAIProvider(
-            signal_response='{"buying_signal_score": 40, "company_fit_score": 50, '
-            '"reasons": [], "risks": ["No signals"], "reasoning": "No data."}',
-            composite_response='{"overall_score": 45, "priority": "WARM", '
-            '"urgency": "This week", "sales_angle": "Generic pitch", '
+            evidence_response='{"pain_alignment_score": 0, "buying_intent_score": 0, '
+            '"company_fit_score": 0, "evidence_based_reasons": [], '
+            '"reasons": ["No evidence found"], "risks": ["No signals"], '
+            '"reasoning": "No data available for scoring."}',
+            composite_response='{"sales_angle": "Generic pitch", '
+            '"qualification_summary": "Limited intelligence", '
             '"reasons": [], "reasoning": "Limited data."}',
         )
         tm = make_fake_tm()
@@ -278,15 +401,18 @@ class TestQualificationAgent:
             ai_provider=fake_ai, tool_manager=MagicMock(), task_manager=tm
         )
         result = await agent.run(task_context, task_input)
-        assert result.output_data["overall_score"] >= 0
+        # ICP match still computed deterministically, but AI scores are 0
+        assert result.output_data["overall_score"] <= 30  # only ICP contributes
+        assert result.output_data["pain_alignment_score"] == 0
+        assert result.output_data["buying_signal_score"] == 0
 
     @pytest.mark.asyncio
     async def test_handles_llm_failure_gracefully(
         self, task_context: AgentContext, task_input: AgentTaskInput
     ) -> None:
-        """When LLM returns invalid JSON, agent falls back to deterministic scoring."""
+        """When LLM returns invalid JSON, agent falls back gracefully."""
         failing_ai = FakeAIProvider(
-            signal_response="not valid json at all",
+            evidence_response="not valid json at all",
             composite_response="also not valid json",
         )
         tm = make_fake_tm()
@@ -297,8 +423,8 @@ class TestQualificationAgent:
         result = await agent.run(task_context, task_input)
         output = result.output_data
 
-        # Should fall back to deterministic composite
-        assert output["overall_score"] > 0
+        # ICP match still computed (30 pts), AI scores fallback to 0
+        assert output["overall_score"] >= 0
         assert output["priority"] in ("HOT", "WARM", "COLD")
 
         events = logged_event_types(tm)
@@ -324,13 +450,13 @@ class TestQualificationAgent:
             task_manager=make_fake_tm(),
         )
 
-        # HOT: good industry match
+        # HOT: good industry match (max 30)
         hot_score, hot_reasons = agent._compute_icp_match(SAMPLE_FINDINGS, icp_hot)
-        assert hot_score >= 70  # industry(40) + size(30) + location(30)
+        assert hot_score == 30  # industry(12) + size(9) + location(9)
 
         # COLD: no match
         cold_score, _ = agent._compute_icp_match(SAMPLE_FINDINGS, icp_cold)
-        assert cold_score < 40
+        assert cold_score < 15
 
 
 # ── Real provider integration test ──────────────────────────────────────

@@ -367,12 +367,15 @@ async def create_qualification_task(
             icp_config_id=None,
             overall_score=output.get("overall_score", 0),
             icp_match_score=output.get("icp_match_score", 0),
+            pain_alignment_score=output.get("pain_alignment_score", 0),
             buying_signal_score=output.get("buying_signal_score", 0),
             company_fit_score=output.get("company_fit_score", 0),
             priority=output.get("priority", "COLD"),
             reasoning=output.get("reasoning", ""),
             reasons=output.get("reasons", []),
             risks=output.get("risks", []),
+            evidence_based_reasons=output.get("evidence_based_reasons", []),
+            qualification_summary=output.get("qualification_summary", ""),
             recommended_urgency=output.get("recommended_bdr_action", {}).get("urgency"),
             recommended_sales_angle=output.get("recommended_bdr_action", {}).get(
                 "suggested_sales_angle"

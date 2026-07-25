@@ -171,7 +171,13 @@ class QualificationResult(TimestampMixin, Base):
     """Audit record of a qualification run.
 
     Stores the complete scoring output — component scores, priority,
-    explainable reasoning, and recommended BDR action.
+    explainable reasoning, evidence-based reasons, and recommended BDR action.
+
+    Scoring model (total = 100):
+    - ICP Match:       30 pts  (deterministic: industry, size, location)
+    - Pain Alignment:  30 pts  (AI: does research show FlytBase-solvable problems)
+    - Buying Intent:   25 pts  (AI: recent signals of buying readiness)
+    - Company Fit:     15 pts  (AI: overall strategic fit)
     """
 
     __tablename__ = "qualification_results"
@@ -184,11 +190,12 @@ class QualificationResult(TimestampMixin, Base):
     report_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("research_reports.id"))
     icp_config_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("icp_configs.id"))
 
-    # ── Component scores (0-100 each) ────────────────────────────────
+    # ── Scoring model (total = 100) ──────────────────────────────────
     overall_score: Mapped[int] = mapped_column(Integer, nullable=False)
-    icp_match_score: Mapped[int] = mapped_column(Integer, nullable=False)
-    buying_signal_score: Mapped[int] = mapped_column(Integer, nullable=False)
-    company_fit_score: Mapped[int] = mapped_column(Integer, nullable=False)
+    icp_match_score: Mapped[int] = mapped_column(Integer, nullable=False)       # max 30
+    pain_alignment_score: Mapped[int] = mapped_column(Integer, nullable=False)  # max 30
+    buying_signal_score: Mapped[int] = mapped_column(Integer, nullable=False)   # max 25
+    company_fit_score: Mapped[int] = mapped_column(Integer, nullable=False)     # max 15
 
     # ── Priority classification ──────────────────────────────────────
     priority: Mapped[str] = mapped_column(String(10), nullable=False)  # HOT | WARM | COLD
@@ -197,6 +204,8 @@ class QualificationResult(TimestampMixin, Base):
     reasoning: Mapped[str] = mapped_column(Text, default="", nullable=False)
     reasons: Mapped[list[str]] = mapped_column(JSONB, default=list)
     risks: Mapped[list[str]] = mapped_column(JSONB, default=list)
+    evidence_based_reasons: Mapped[list[str]] = mapped_column(JSONB, default=list, nullable=False)
+    qualification_summary: Mapped[str] = mapped_column(Text, default="", nullable=False)
 
     # ── BDR action recommendation (input for Outreach Agent) ─────────
     recommended_urgency: Mapped[str | None] = mapped_column(String(50))
