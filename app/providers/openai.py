@@ -21,14 +21,23 @@ _NVIDIA_HOST = "integrate.api.nvidia.com"
 # Global semaphore shared across all OpenAIProvider instances (via module
 # singleton) to prevent concurrent requests from overwhelming the provider.
 # NVIDIA DeepSeek has a per-worker limit of 48 concurrent requests. One
-# inbound simulation triggers ~6 AI calls across Research + Qualification +
-# Inbound + Pipeline agents. With semaphore=1 only one request is active
-# at a time, preventing ResourceExhausted amplification.
+# inbound simulation triggers multiple AI calls across agents. With
+# semaphore=1 only one request is active at a time in this process.
 _AI_REQUEST_LIMIT = 1
 _ai_semaphore = asyncio.Semaphore(_AI_REQUEST_LIMIT)
 
-_MAX_RETRIES = 1
-_RETRY_BASE_DELAY = 2.0  # seconds
+# ── Retry policy for transient provider capacity errors ────────────────
+# Production log pattern:
+#   ResourceExhausted: Worker local total request limit reached (48/48)
+# Previously _MAX_RETRIES=1 meant only ONE attempt (range(1, 2)) and
+# immediate degraded fallback — that is the root cause of "after 1 retries".
+_MAX_ATTEMPTS = 3
+# Delay AFTER each failed attempt before the next try / final fallback.
+# attempt1 fail → 2s, attempt2 fail → 5s, attempt3 fail → 10s then degrade.
+_RETRY_DELAYS_SEC: tuple[float, ...] = (2.0, 5.0, 10.0)
+
+# Cap outbound generation size at the provider boundary (research uses ≤1600).
+_PROVIDER_MAX_TOKENS_CAP = 1600
 
 
 class OpenAIProvider(ConfiguredProvider):
@@ -38,18 +47,16 @@ class OpenAIProvider(ConfiguredProvider):
     Compatible with any OpenAI-compatible endpoint by setting ``OPENAI_BASE_URL``.
 
     Throttling & resilience:
-    - Global ``asyncio.Semaphore`` limits concurrent requests to
-      ``AI_REQUEST_LIMIT=2``.
-    - On 503 ``ResourceExhausted``, retries once after 2 s backoff
-      (``_MAX_RETRIES=1``).
-    - If the provider still returns 503 after the retry, a degraded
+    - Global ``asyncio.Semaphore`` limits concurrent requests to 1 in-process.
+    - On 503 / ResourceExhausted / rate-limit style errors, retries up to
+      ``_MAX_ATTEMPTS`` (3) with delays 2s → 5s → 10s.
+    - If the provider still fails after all attempts, a degraded
       ``AIResponse`` is returned instead of raising ``ProviderError``,
-      allowing downstream agents to continue with best-effort results.
+      allowing ResearchAgent (and others) to use structured fallbacks.
 
     NVIDIA DeepSeek support:
     - Auto-detects NVIDIA endpoint via base URL
-    - Adds ``chat_template_kwargs`` with ``thinking=true`` and
-      ``reasoning_effort="high"`` for deeper reasoning
+    - Adds ``chat_template_kwargs`` for reasoning models
     """
 
     name = "openai"
@@ -64,16 +71,10 @@ class OpenAIProvider(ConfiguredProvider):
         model = request.model or self._settings.openai_model or _OPENAI_DEFAULT_MODEL
 
         # Normalise base URL: strip trailing /v1 to avoid double-path
-        # when users set OPENAI_BASE_URL=https://integrate.api.nvidia.com/v1
         base_url = _normalize_openai_base_url(raw_base_url)
-
-        # Detect NVIDIA DeepSeek endpoint for special handling
         is_nvidia = _NVIDIA_HOST in base_url
-
-        # Build the final request URL once for debug logging
         request_url = f"{base_url}/v1/chat/completions"
 
-        # ── Debug: log AI request metadata ─────────────────────────────
         agent_label = request.metadata.get("agent", "unknown")
         logger.info(
             "[AI REQUEST] provider=%s agent=%s base_url=%s request_url=%s model=%s "
@@ -101,13 +102,15 @@ class OpenAIProvider(ConfiguredProvider):
         if request.temperature is not None:
             payload["temperature"] = request.temperature
         if request.max_tokens is not None:
-            payload["max_tokens"] = request.max_tokens
+            # Bound generation size under provider capacity pressure.
+            # Research requests already use ≤1600; other agents may request less.
+            payload["max_tokens"] = min(int(request.max_tokens), _PROVIDER_MAX_TOKENS_CAP)
 
-        # ── NVIDIA DeepSeek: add chat_template_kwargs ──────────────────
         if is_nvidia:
+            # Prefer lower-overhead settings under worker capacity pressure.
             payload["chat_template_kwargs"] = {
-                "thinking": True,
-                "reasoning_effort": "high",
+                "thinking": False,
+                "reasoning_effort": "medium",
             }
 
         headers = {
@@ -115,71 +118,93 @@ class OpenAIProvider(ConfiguredProvider):
             "content-type": "application/json",
         }
 
-        # ── Throttle: wait for semaphore before hitting the provider ────
         logger.info(
             "[AI QUEUE] provider=%s waiting (limit=%s active=%s)",
             self.name,
             _AI_REQUEST_LIMIT,
             _AI_REQUEST_LIMIT - _ai_semaphore._value,  # pyright: ignore
         )
+
         async with _ai_semaphore:
             logger.info("[AI QUEUE] provider=%s acquired semaphore", self.name)
 
-            # ── Retry loop for 503 ResourceExhausted ───────────────────
-            last_exc: Exception | None = None
-            for attempt in range(1, _MAX_RETRIES + 1):
+            last_exc: ProviderError | None = None
+            for attempt in range(1, _MAX_ATTEMPTS + 1):
                 try:
-                    return await self._post_with_retry(
+                    response = await self._post_once(
                         request_url=request_url,
                         headers=headers,
                         payload=payload,
                         model=model,
                         attempt=attempt,
+                        agent_label=agent_label,
                     )
-                except ProviderError as exc:
-                    last_exc = exc
-                    # Only retry on 503 ResourceExhausted
-                    if exc.status_code != 503:
-                        raise
-                    if attempt < _MAX_RETRIES:
-                        delay = _RETRY_BASE_DELAY * (2 ** (attempt - 1))
-                        logger.warning(
-                            "[AI RETRY] provider=%s attempt=%s/%s status=503 "
-                            "retry_after=%.1fs error=%s",
+                    if agent_label == "research":
+                        logger.info(
+                            "[AI SYNTHESIS] provider=%s success=true fallback=false "
+                            "latency_note=see_prior_AI_RESPONSE attempt=%s",
                             self.name,
                             attempt,
-                            _MAX_RETRIES,
+                        )
+                    return response
+                except ProviderError as exc:
+                    last_exc = exc
+                    if not _is_retryable_provider_error(exc):
+                        raise
+
+                    delay = _RETRY_DELAYS_SEC[min(attempt - 1, len(_RETRY_DELAYS_SEC) - 1)]
+                    if attempt < _MAX_ATTEMPTS:
+                        logger.warning(
+                            "[AI RETRY] attempt=%s delay=%.1f reason=%s",
+                            attempt,
                             delay,
-                            exc.message,
+                            _safe_reason(exc.message),
                         )
                         await asyncio.sleep(delay)
+                        continue
 
-            # All retries exhausted — return degraded response
-            last_error = last_exc.message if isinstance(last_exc, ProviderError) else "unknown"
+                    # Final attempt failed — optional pause then degrade
+                    logger.warning(
+                        "[AI RETRY] attempt=%s delay=%.1f reason=%s (final before fallback)",
+                        attempt,
+                        delay,
+                        _safe_reason(exc.message),
+                    )
+                    await asyncio.sleep(delay)
+
+            # All attempts exhausted — degraded response for agent fallbacks
+            last_error = last_exc.message if last_exc else "unknown"
+            safe = _safe_reason(last_error)
             logger.error(
-                "[AI FALLBACK] provider=%s after %s retries — returning degraded "
-                "response. error=%s",
+                "[AI FALLBACK] provider=%s after %s attempts — returning degraded "
+                "response. reason=%s",
                 self.name,
-                _MAX_RETRIES,
-                last_error,
+                _MAX_ATTEMPTS,
+                safe,
             )
+            if agent_label == "research":
+                logger.info(
+                    "[AI SYNTHESIS] provider=%s success=false fallback=true reason=%s",
+                    self.name,
+                    safe,
+                )
             return AIResponse(
                 content=(
                     "[AI provider temporarily unavailable — using fallback analysis. "
-                    f"Reason: {last_error}]"
+                    f"Reason: {safe}]"
                 ),
                 model=model,
                 provider=self.name,
                 usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
                 raw_metadata={
                     "status": "degraded",
-                    "reason": last_error,
-                    "retries_attempted": _MAX_RETRIES,
+                    "reason": safe,
+                    "attempts": _MAX_ATTEMPTS,
                     "semaphore_limit": _AI_REQUEST_LIMIT,
                 },
             )
 
-    async def _post_with_retry(
+    async def _post_once(
         self,
         *,
         request_url: str,
@@ -187,6 +212,7 @@ class OpenAIProvider(ConfiguredProvider):
         payload: dict[str, Any],
         model: str,
         attempt: int,
+        agent_label: str,
     ) -> AIResponse:
         start = time.monotonic()
 
@@ -201,10 +227,12 @@ class OpenAIProvider(ConfiguredProvider):
                 latency = time.monotonic() - start
                 logger.error(
                     "[AI RESPONSE] provider=%s success=false latency=%.2fs "
-                    "error=RequestError: %s",
+                    "attempt=%s/%s error=RequestError: %s",
                     self.name,
                     latency,
-                    exc,
+                    attempt,
+                    _MAX_ATTEMPTS,
+                    type(exc).__name__,
                 )
                 raise ProviderError(
                     provider=self.name,
@@ -213,33 +241,37 @@ class OpenAIProvider(ConfiguredProvider):
                 ) from exc
 
         latency = time.monotonic() - start
+        detail = _extract_openai_error(response)
 
-        if response.status_code == 503:
-            detail = _extract_openai_error(response)
+        if response.status_code == 503 or _looks_like_resource_exhausted(
+            response.status_code, detail
+        ):
             logger.error(
                 "[AI RESPONSE] provider=%s success=false latency=%.2fs "
-                "status_code=503 attempt=%s/%s error=%s",
+                "status_code=%s attempt=%s/%s error=%s",
                 self.name,
                 latency,
+                response.status_code,
                 attempt,
-                _MAX_RETRIES,
-                detail,
+                _MAX_ATTEMPTS,
+                _safe_reason(detail),
             )
             raise ProviderError(
                 provider=self.name,
-                status_code=503,
+                status_code=response.status_code if response.status_code else 503,
                 message=detail,
             )
 
         if response.status_code != 200:
-            detail = _extract_openai_error(response)
             logger.error(
                 "[AI RESPONSE] provider=%s success=false latency=%.2fs "
-                "status_code=%s error=%s",
+                "status_code=%s attempt=%s/%s error=%s",
                 self.name,
                 latency,
                 response.status_code,
-                detail,
+                attempt,
+                _MAX_ATTEMPTS,
+                _safe_reason(detail),
             )
             raise ProviderError(
                 provider=self.name,
@@ -258,14 +290,15 @@ class OpenAIProvider(ConfiguredProvider):
 
         logger.info(
             "[AI RESPONSE] provider=%s success=true latency=%.2fs "
-            "model=%s total_tokens=%s finish_reason=%s attempt=%s/%s",
+            "model=%s total_tokens=%s finish_reason=%s attempt=%s/%s agent=%s",
             self.name,
             latency,
             data.get("model", model),
             usage.get("total_tokens", "?"),
             choice.get("finish_reason", "?"),
             attempt,
-            _MAX_RETRIES,
+            _MAX_ATTEMPTS,
+            agent_label,
         )
 
         return AIResponse(
@@ -276,8 +309,46 @@ class OpenAIProvider(ConfiguredProvider):
             raw_metadata={
                 "finish_reason": choice.get("finish_reason"),
                 "system_fingerprint": data.get("system_fingerprint"),
+                "attempt": attempt,
+                "latency_s": round(latency, 3),
             },
         )
+
+
+def _is_retryable_provider_error(exc: ProviderError) -> bool:
+    """True for transient capacity / rate-limit style failures."""
+    if exc.status_code in (429, 502, 503, 504):
+        return True
+    return _message_is_capacity_error(exc.message or "")
+
+
+def _looks_like_resource_exhausted(status_code: int, detail: str) -> bool:
+    if status_code in (429, 502, 503, 504):
+        return True
+    return _message_is_capacity_error(detail)
+
+
+def _message_is_capacity_error(message: str) -> bool:
+    lower = (message or "").lower()
+    needles = (
+        "resourceexhausted",
+        "resource exhausted",
+        "request limit reached",
+        "worker local total",
+        "rate limit",
+        "too many requests",
+        "temporarily unavailable",
+        "overloaded",
+        "capacity",
+        "try again",
+    )
+    return any(n in lower for n in needles)
+
+
+def _safe_reason(message: str, limit: int = 160) -> str:
+    """Truncate provider error text; never pass secrets (none should be present)."""
+    text = (message or "unknown").replace("\n", " ").strip()
+    return text[:limit]
 
 
 def _normalize_openai_base_url(url: str) -> str:
@@ -299,6 +370,8 @@ def _extract_openai_error(response: httpx.Response) -> str:
     try:
         body = response.json()
         err = body.get("error", {})
-        return err.get("message", str(response.status_code))
+        if isinstance(err, dict):
+            return str(err.get("message", response.status_code))
+        return str(err) if err else str(response.status_code)
     except Exception:
         return response.text[:500] or f"HTTP {response.status_code}"

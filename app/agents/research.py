@@ -1,9 +1,15 @@
 """BDR research agent — gathers and synthesises company intelligence.
 
-Collects external evidence from web search (via Tavily or simulated), then
-uses DeepSeek to synthesise a structured evidence-backed intelligence report.
+Architecture (unchanged):
+  ResearchAgent
+    → SignalCollector (category-targeted public web search via ToolManager)
+    → WebSearchTool (Tavily + simulated fallback)
+    → optional extract_web_content on top URLs
+    → LLM synthesis (DeepSeek/provider-neutral AIProvider)
+    → evidence-preserving fallback if synthesis fails
 
-Every claim in the output must reference a source URL — no hallucinated facts.
+Every claim should reference a source URL. LinkedIn is excluded at the
+SignalCollector layer (public sources only).
 """
 
 from __future__ import annotations
@@ -29,89 +35,116 @@ from app.tools.tool_manager import ToolManager
 
 logger = logging.getLogger(__name__)
 
+# Compact synthesis context — top ranked signals only (no raw page dumps).
+_MAX_SYNTHESIS_SIGNALS = 18
+_SYNTHESIS_MAX_TOKENS = 1600
+_SYNTHESIS_TEMPERATURE = 0.1
+
+# Full enterprise BDR intelligence schema for synthesis.
 _EVIDENCE_SYNTHESIS_PROMPT = """\
-You are a senior BDR intelligence analyst.  Below you will find a set of
-**collected evidence signals** — real search results and extracted web
-content for the target company.  Your job is to **analyse this evidence**
-and produce a structured, evidence-backed company intelligence report.
+You are a senior BDR intelligence analyst for FlytBase (enterprise drone fleet
+automation and remote operations).
+
+You receive **collected research signals** from public web sources only
+(company sites, press releases, industry publications, IR/regulatory pages,
+safety reports, technology announcements). LinkedIn/social scrapes are excluded.
+
+Produce a complete, enterprise-grade BDR intelligence report for the company.
 
 CRITICAL RULES:
-1. DO NOT fabricate facts, dates, or sources.  Use ONLY the evidence
-   provided in the "Collected Signals" and "Extracted Content" sections.
-2. Every claim in your output MUST reference a ``source_url`` that exists
-   in the evidence you were given.
-3. If the evidence for a particular field is insufficient, set it to
-   ``null`` or ``[]`` — do NOT invent data.
-4. Categorise signals using the categories present in the evidence.
+1. NEVER invent facts, dates, numbers, or URLs.
+2. Use ONLY the provided research signals (and optional inbound context).
+3. Every pain point and buying signal MUST include a source_url from signals.
+4. Every latest_news / recent_signals item MUST include a real url from signals.
+5. Do NOT return empty arrays when evidence exists — map signals into the
+   closest fields.
+6. If a field is unknown from evidence, use null or a short honest statement
+   such as "Not found in collected public evidence" — do not fabricate.
+7. Prefer themes relevant to FlytBase when present: automation, remote ops,
+   inspection, safety, site monitoring, digital transformation, drones.
 
-Return ONLY valid JSON matching this schema — no markdown, no commentary:
+Return ONLY valid JSON (no markdown, no commentary) matching this schema:
 {
   "company_name": "Full company name",
-  "domain": "Primary domain",
-  "industry": "Industry classification (e.g. Mining, Drone Services, SaaS)",
-  "employee_count": integer or null,
-  "location": "Headquarters location or null",
-  "description": "2-3 sentence company overview synthesised from evidence",
-  "company_situation": "2-3 sentence summary of current business situation based on evidence",
+  "domain": "Primary domain if known",
+  "description": "2-4 sentence company overview from evidence",
+  "industry": "Industry classification or null",
+  "business_model": "How they make money / operate, from evidence, or null",
+  "major_operations": "Key operations / assets / lines of business, or null",
+  "geographic_presence": "HQ and key regions if evidenced, or null",
+  "employee_count": null,
+  "location": "HQ location if evidenced, or null",
+  "company_situation": "2-3 sentences on current business situation",
+  "latest_news": [
+    {
+      "title": "Headline from a signal",
+      "url": "URL from signals",
+      "date": "Date if known else null",
+      "summary": "1-2 sentence summary",
+      "category": "company_news"
+    }
+  ],
   "operational_pain_points": [
     {
       "pain_point": "Specific operational problem",
-      "evidence": "Evidence supporting this pain point",
-      "source_url": "URL backing this claim"
+      "evidence": "Quote or paraphrase from a signal",
+      "source_url": "URL from signals"
     }
   ],
   "buying_signals": [
     {
-      "signal": "Specific buying signal",
-      "source_url": "URL backing this claim"
+      "signal": "Specific buying / adoption / investment signal",
+      "evidence": "Quote or paraphrase from a signal",
+      "source_url": "URL from signals"
     }
   ],
   "business_signals": [
     {
-      "signal": "Business/growth signal description",
-      "category": "company_news|expansion|hiring|funding|technology|automation|partnership",
-      "source_url": "URL backing this claim",
-      "summary": "Short summary of the signal",
-      "date": "Date of signal or null"
+      "signal": "Business/growth signal",
+      "category": "company_news|expansion|hiring|automation_investment|partnership|press_release",
+      "source_url": "URL from signals",
+      "summary": "Short summary",
+      "date": "Date or null"
     }
   ],
-  "pain_points": ["Likely pain points this company faces"],
-  "technology_signals": ["Technology stack and platform signals"],
-  "why_now": "2-3 sentence explanation of why this company should be contacted now",
-  "flytbase_relevance": "High/Medium/Low — explanation of why FlytBase fits, with evidence",
-  "flytbase_fit": "Specific FlytBase capabilities that address the company's pain points",
-  "recommended_next_action": "Recommended BDR next step",
-  "recommended_sales_angle": "Specific sales angle for the BDR to lead with",
-  "confidence_score": 0-100,
   "recent_signals": [
     {
-      "title": "Signal title from collected evidence",
-      "url": "Source URL",
+      "title": "Signal title",
+      "url": "URL from signals",
       "date": "Date or null",
-      "summary": "Short summary of this signal",
-      "category": "company_news|press_release|industry_article|safety_incident|tech_announcement"
+      "summary": "Short summary",
+      "category": "category from evidence",
+      "source_type": "source type if known"
     }
   ],
-  "sources": ["All unique source URLs used"],
+  "technology_signals": ["Tech / platform signals from evidence"],
+  "pain_points": ["Short pain labels derived from evidence"],
+  "why_now": "2-3 sentences on outreach urgency from evidence + inbound context",
+  "flytbase_relevance": "High/Medium/Low — explanation grounded in evidence",
+  "flytbase_fit": "Which FlytBase capabilities map to evidenced needs",
+  "recommended_next_action": "Concrete BDR next step",
+  "recommended_sales_angle": "Specific sales angle for the BDR",
+  "confidence_score": 0,
+  "sources": ["Unique source URLs used"],
   "evidence": [
-    {
-      "claim": "Specific claim about the company",
-      "source_url": "URL backing this claim"
-    }
+    {"claim": "Specific claim", "source_url": "URL from signals"}
   ]
 }
 
-Analyse the evidence below.  Do NOT invent anything."""
+confidence_score is 0-100 based on evidence quality and coverage.
+Include up to 10 latest_news items and up to 15 recent_signals when evidence supports it.
+latest_news should prioritize company announcements, press, IR, industry and tech news.
+"""
+
 
 class ResearchAgent(BaseAgent):
     """BDR research agent — evidence-backed company intelligence.
 
     Workflow:
-    1. Execute web searches for each evidence category
-    2. Extract content from top URLs
-    3. Synthesise findings into structured intelligence via LLM
-    4. Every claim references a source URL — no fabricated facts
-    5. Persist report with evidence and citations
+    1. Collect category-targeted public web signals (no LinkedIn)
+    2. Light extraction from top URLs
+    3. Synthesise full BDR report via LLM
+    4. On failure, preserve collected Tavily evidence in structured fallback
     """
 
     agent_type = "research"
@@ -130,6 +163,14 @@ class ResearchAgent(BaseAgent):
         task_id = context.task_id
         company_name = task.input_data.get("company_name", "")
         domain = task.input_data.get("domain", "")
+        inbound_context = (
+            task.input_data.get("inbound_message")
+            or task.input_data.get("message_content")
+            or task.input_data.get("message")
+            or ""
+        )
+        if isinstance(inbound_context, dict):
+            inbound_context = inbound_context.get("body") or inbound_context.get("content") or ""
 
         # ── Step 1: Start ──────────────────────────────────────────────
         self._tm.append_log(
@@ -138,10 +179,10 @@ class ResearchAgent(BaseAgent):
             {"company_name": company_name, "domain": domain},
         )
 
-        # ── Step 2: Collect structured evidence signals via SignalCollector ─
+        # ── Step 2: Collect structured evidence signals ────────────────
         self._tm.append_log(
             task_id, "info", "signal_collection_started",
-            f"Collecting category-targeted evidence signals for {company_name!r}",
+            f"Collecting category-targeted public evidence signals for {company_name!r}",
             {"company_name": company_name, "domain": domain},
         )
 
@@ -150,6 +191,7 @@ class ResearchAgent(BaseAgent):
             company_name=company_name,
             domain=domain,
             max_signals_per_category=3,
+            max_total_signals=_MAX_SYNTHESIS_SIGNALS,
         )
 
         all_sources: list[str] = [s.url for s in collected_signals]
@@ -161,21 +203,22 @@ class ResearchAgent(BaseAgent):
         )
 
         logger.info(
-            "[RESEARCH] signals_count=%s company=%s",
-            len(collected_signals), company_name,
+            "[RESEARCH] signals_received=%s company=%s",
+            len(collected_signals),
+            company_name,
         )
 
-        # ── Step 3: Extract content from signal source URLs ────────────
+        # ── Step 3: Light extraction from top sources ──────────────────
         self._tm.append_log(
             task_id, "info", "extraction_started",
-            f"Extracting content from {len(all_sources)} signal sources",
-            {"source_count": len(all_sources)},
+            "Extracting content from top signal sources (cap=5)",
+            {"source_count": min(5, len(all_sources))},
         )
 
         seen_urls: set[str] = set()
         content_texts: list[str] = []
 
-        for source_url in all_sources:
+        for source_url in all_sources[:5]:
             if source_url in seen_urls:
                 continue
             seen_urls.add(source_url)
@@ -191,8 +234,10 @@ class ResearchAgent(BaseAgent):
                     "extract_web_content", {"url": source_url}
                 )
                 page = extracted.content
-                snippet = f"--- {page.get('title', source_url)} ---\n{page.get('text', '')[:2000]}"
-                content_texts.append(snippet)
+                text = (page.get("text") or "")[:500]
+                if text.strip():
+                    snippet = f"--- {page.get('title', source_url)} ---\n{text}"
+                    content_texts.append(snippet)
 
                 self._tm.append_log(
                     task_id, "debug", "tool_completed",
@@ -206,29 +251,24 @@ class ResearchAgent(BaseAgent):
                     {"tool": "extract_web_content", "url": source_url, "error": str(exc)},
                 )
 
-        # ── Step 4: Synthesise into evidence-backed report ──────────────
+        # ── Step 4: Synthesise full BDR intelligence report ─────────────
         self._tm.append_log(
             task_id, "info", "synthesis_started",
-            "Synthesising evidence-backed intelligence report via LLM",
-        )
-
-        logger.info(
-            "[AI SYNTHESIS] started company=%s signals=%s",
-            company_name, len(collected_signals),
+            "Synthesising enterprise BDR intelligence report via LLM",
         )
 
         findings = await self._synthesize_report(
             company_name=company_name,
             domain=domain,
             collected_signals=collected_signals,
-            extracted_content=content_texts,
+            inbound_context=str(inbound_context)[:800] if inbound_context else "",
             task_id=task_id,
         )
 
         evidence = findings.get("evidence", [])
-        sources = findings.get("sources", all_sources)
+        sources = findings.get("sources") or all_sources
 
-        # ── Step 7: Build report output ────────────────────────────────
+        # ── Step 5: Build report output ────────────────────────────────
         report_id = uuid.uuid4()
 
         self._tm.append_log(
@@ -237,15 +277,66 @@ class ResearchAgent(BaseAgent):
             {"report_id": str(report_id), "evidence_count": len(evidence)},
         )
 
-        summary = findings.get("description", f"Research completed for {company_name or domain}")
+        summary = findings.get(
+            "description", f"Research completed for {company_name or domain}"
+        )
+        recent_raw = findings.get("recent_signals", [])
+        recent_signals = [_normalize_recent_signal(s) for s in recent_raw]
+        latest_news = [
+            _normalize_news_item(n)
+            for n in (findings.get("latest_news") or [])
+        ]
+        # If model omitted latest_news, derive from recent company/press signals
+        if not latest_news and recent_signals:
+            latest_news = [
+                {
+                    "title": s.get("title", ""),
+                    "url": s.get("url", ""),
+                    "date": s.get("date"),
+                    "summary": s.get("summary", ""),
+                    "category": "company_news",
+                }
+                for s in recent_signals
+                if s.get("category") in (
+                    "company_news",
+                    "press_release",
+                    "company_overview",
+                    "industry_article",
+                    "technology_announcement",
+                )
+            ][:10]
+            if not latest_news:
+                latest_news = [
+                    {
+                        "title": s.get("title", ""),
+                        "url": s.get("url", ""),
+                        "date": s.get("date"),
+                        "summary": s.get("summary", ""),
+                        "category": "company_news",
+                    }
+                    for s in recent_signals[:8]
+                ]
+
         report_data = {
             "company_name": findings.get("company_name", company_name),
             "domain": findings.get("domain", domain),
             "industry": findings.get("industry"),
+            "business_model": findings.get("business_model"),
+            "major_operations": findings.get("major_operations"),
+            "geographic_presence": findings.get("geographic_presence"),
             "employee_count": findings.get("employee_count"),
             "location": findings.get("location"),
             "description": findings.get("description"),
-            # Evidence-backed intelligence
+            "company_overview": {
+                "description": findings.get("description"),
+                "industry": findings.get("industry"),
+                "business_model": findings.get("business_model"),
+                "major_operations": findings.get("major_operations"),
+                "geographic_presence": findings.get("geographic_presence"),
+                "employee_count": findings.get("employee_count"),
+                "location": findings.get("location"),
+            },
+            "latest_news": latest_news,
             "evidence": findings.get("evidence", []),
             "company_situation": findings.get("company_situation", ""),
             "operational_pain_points": findings.get("operational_pain_points", []),
@@ -256,20 +347,13 @@ class ResearchAgent(BaseAgent):
             "why_now": findings.get("why_now", ""),
             "flytbase_relevance": findings.get("flytbase_relevance", ""),
             "flytbase_fit": findings.get("flytbase_fit", ""),
-            "recommended_next_action": findings.get("recommended_next_action", ""),
+            "recommended_next_action": findings.get("recommended_next_action", "")
+            or findings.get("next_action", ""),
+            "next_action": findings.get("next_action")
+            or findings.get("recommended_next_action", ""),
             "recommended_sales_angle": findings.get("recommended_sales_angle", ""),
             "confidence_score": findings.get("confidence_score", 0),
-            # Structured evidence signals
-            "recent_signals": [
-                {
-                    "title": s.get("title", ""),
-                    "url": s.get("url", ""),
-                    "date": s.get("date"),
-                    "summary": s.get("summary", ""),
-                    "category": s.get("category", "company_news"),
-                }
-                for s in findings.get("recent_signals", [])
-            ],
+            "recent_signals": recent_signals,
             "sources": sources,
         }
 
@@ -278,16 +362,17 @@ class ResearchAgent(BaseAgent):
             "findings": report_data,
             "evidence": evidence,
             "intelligence_metadata": {
-                "analysis_version": "3.0",
+                "analysis_version": "3.2",
                 "signal_count": len(collected_signals),
                 "source_count": len(all_sources),
                 "extraction_count": len(content_texts),
                 "evidence_count": len(evidence),
+                "latest_news_count": len(latest_news),
             },
             "providers_used": getattr(self._ai, "name", "unknown"),
         }
 
-        # ── Step 8: Complete ────────────────────────────────────────────
+        # ── Step 6: Complete ────────────────────────────────────────────
         self._tm.append_log(
             task_id, "info", "task_completed",
             f"Evidence-backed intelligence research completed for {company_name or domain}",
@@ -311,119 +396,50 @@ class ResearchAgent(BaseAgent):
         company_name: str,
         domain: str,
         collected_signals: list[ResearchSignal],
-        extracted_content: list[str],
+        inbound_context: str,
         task_id: uuid.UUID,
     ) -> dict[str, Any]:
-        """Use DeepSeek to synthesise collected evidence signals into a
-        structured, evidence-backed intelligence report.
+        """Synthesise collected evidence into a full BDR intelligence report.
 
-        ``collected_signals`` are ``ResearchSignal`` objects from
-        ``SignalCollector``.  They are rendered as formatted text in the
-        prompt for analysis.  If the LLM is unavailable or returns
-        unparseable output, the collected signals are preserved in a
-        structured fallback so no evidence is lost.
+        Sends only top ranked signals (compact fields) to the LLM to reduce
+        truncation/parse failures.  On any failure, falls back to a report
+        that preserves all collected Tavily evidence.
         """
-        content_summary = "\n\n".join(extracted_content[:5])
-        signals_text = SignalCollector.format_signals_for_prompt(collected_signals)
+        del task_id  # reserved for future step logging inside synthesis
+        ranked = SignalCollector.signals_as_compact_dicts(
+            collected_signals, max_signals=_MAX_SYNTHESIS_SIGNALS
+        )
+        signals_text = SignalCollector.format_signals_for_prompt(
+            collected_signals, max_signals=_MAX_SYNTHESIS_SIGNALS
+        )
+
+        inbound_block = ""
+        if inbound_context.strip():
+            inbound_block = (
+                "\n=== Inbound lead context (use for why_now / sales angle only; "
+                "do not invent facts beyond signals) ===\n"
+                f"{inbound_context.strip()}\n"
+            )
 
         user_prompt = (
             f"Company: {company_name or 'Unknown'}\n"
-            f"Domain: {domain or 'Unknown'}\n\n"
-            f"=== Collected Evidence Signals ===\n{signals_text}\n\n"
-            f"=== Extracted Web Content ===\n{content_summary}\n\n"
-            "Analyse the evidence above.  Synthesise it into a structured "
-            "BDR intelligence report.\n"
-            "Every claim MUST reference a source URL from the evidence above.\n"
-            "Return ONLY valid JSON matching the specified schema."
+            f"Domain: {domain or 'Unknown'}\n"
+            f"Signal count: {len(ranked)}\n"
+            f"{inbound_block}\n"
+            f"=== Research Signals (ONLY evidence you may use) ===\n"
+            f"{signals_text}\n"
+            "Synthesise a complete BDR intelligence report as specified JSON.\n"
+            "Include company overview fields, latest_news, operational_pain_points, "
+            "buying_signals, and recent_signals whenever evidence exists.\n"
+            "Do not invent facts. Return ONLY valid JSON."
         )
 
-        # ── Build evidence-preserving fallback ─────────────────────────────
-        def _build_fallback() -> dict[str, Any]:
-            signal_dicts = [
-                {
-                    "title": s.title,
-                    "url": s.url,
-                    "date": s.date,
-                    "summary": s.summary,
-                    "category": s.category,
-                }
-                for s in collected_signals
-            ]
-            # Derive pain points and buying signals from signal categories
-            derived_pain_points = [
-                {
-                    "pain_point": s.summary if len(s.summary) > 20 else s.title,
-                    "evidence": s.summary or s.title,
-                    "source_url": s.url,
-                }
-                for s in collected_signals
-                if s.url and s.category in (
-                    "safety_incident", "industry_article", "company_news",
-                )
-            ]
-            derived_buying_signals = [
-                {
-                    "signal": s.summary if len(s.summary) > 15 else s.title,
-                    "source_url": s.url,
-                }
-                for s in collected_signals
-                if s.url and s.category in (
-                    "expansion", "hiring", "funding", "technology",
-                    "technology_announcement", "tech_announcement", "partnership",
-                )
-            ]
-            derived_pain_list = list({s["pain_point"]: s for s in derived_pain_points}.values())
-            derived_buying_list = list({s["signal"]: s for s in derived_buying_signals}.values())
-            return {
-                "company_name": company_name,
-                "domain": domain,
-                "description": f"Research completed for {company_name or domain}. "
-                "AI synthesis unavailable; evidence signals preserved.",
-                "company_situation": (
-                    f"{company_name or domain} is active in their industry based on "
-                    f"{len(collected_signals)} recent signals collected from public sources."
-                ),
-                "operational_pain_points": derived_pain_list,
-                "buying_signals": derived_buying_list,
-                "business_signals": [
-                    {
-                        "signal": s.summary or s.title,
-                        "category": s.category,
-                        "source_url": s.url,
-                        "summary": s.summary or "",
-                        "date": s.date,
-                    }
-                    for s in collected_signals
-                    if s.url
-                ],
-                "pain_points": [s.summary for s in collected_signals if s.summary][:5],
-                "technology_signals": [
-                    s.title for s in collected_signals
-                    if s.category in ("technology", "technology_announcement",
-                                     "tech_announcement")
-                ],
-                "why_now": (
-                    f"Recent signals indicate activity in automation, expansion, "
-                    f"or industry developments relevant to {company_name or domain}."
-                ),
-                "flytbase_relevance": "Research data collected but AI synthesis unavailable. "
-                "Review recent signals for relevance.",
-                "flytbase_fit": "",
-                "recommended_next_action": "Review research signals and qualify based on evidence.",
-                "recommended_sales_angle": "Lead with operational intelligence based on recent "
-                "signals.",
-                "confidence_score": min(len(collected_signals) * 4, 60),
-                "recent_signals": signal_dicts,
-                "sources": [s.url for s in collected_signals if s.url],
-                "evidence": [
-                    {
-                        "claim": s.summary or s.title,
-                        "source_url": s.url,
-                    }
-                    for s in collected_signals
-                    if s.url
-                ],
-            }
+        logger.info(
+            "[AI SYNTHESIS] started=true company=%s signals=%s max_tokens=%s",
+            company_name,
+            len(ranked),
+            _SYNTHESIS_MAX_TOKENS,
+        )
 
         try:
             response = await self._ai.generate(
@@ -432,34 +448,475 @@ class ResearchAgent(BaseAgent):
                         AIMessage(role="system", content=_EVIDENCE_SYNTHESIS_PROMPT),
                         AIMessage(role="user", content=user_prompt),
                     ],
-                    temperature=0.2,
-                    max_tokens=800,
+                    temperature=_SYNTHESIS_TEMPERATURE,
+                    max_tokens=_SYNTHESIS_MAX_TOKENS,
                     metadata={"agent": "research"},
                 )
             )
-            parsed = _parse_json_object(response.content)
+            # Provider may return a degraded text body after exhausted retries
+            is_degraded = (response.raw_metadata or {}).get("status") == "degraded"
+            parsed = None if is_degraded else _parse_json_object(response.content)
             if parsed is not None:
                 logger.info(
-                    "[AI SYNTHESIS] success=true company=%s signals=%s",
-                    company_name, len(collected_signals),
+                    "[AI SYNTHESIS] provider=%s success=true fallback=false company=%s",
+                    getattr(self._ai, "name", "unknown"),
+                    company_name,
                 )
-                return parsed
+                return _merge_synthesis_with_evidence(
+                    parsed,
+                    company_name=company_name,
+                    domain=domain,
+                    collected_signals=collected_signals,
+                    inbound_context=inbound_context,
+                )
 
-            # LLM returned unparseable text (e.g. degraded response)
+            reason = "degraded_provider" if is_degraded else "unparseable"
             logger.warning(
-                "[AI SYNTHESIS] success=false — unparseable response. "
-                "[FALLBACK] preserving evidence signals=%s company=%s",
-                len(collected_signals), company_name,
+                "[AI SYNTHESIS] provider=%s success=false fallback=true "
+                "reason=%s company=%s",
+                getattr(self._ai, "name", "unknown"),
+                reason,
+                company_name,
             )
-            return _build_fallback()
+            logger.info(
+                "[FALLBACK] preserving_evidence count=%s company=%s",
+                len(collected_signals),
+                company_name,
+            )
+            return _build_fallback(
+                company_name=company_name,
+                domain=domain,
+                collected_signals=collected_signals,
+                inbound_context=inbound_context,
+            )
 
-        except (ProviderError, Exception):
+        except (ProviderError, Exception) as exc:
             logger.warning(
-                "[AI SYNTHESIS] success=false — provider error. "
-                "[FALLBACK] preserving evidence signals=%s company=%s",
-                len(collected_signals), company_name,
+                "[AI SYNTHESIS] provider=%s success=false fallback=true "
+                "reason=%s company=%s",
+                getattr(self._ai, "name", "unknown"),
+                type(exc).__name__,
+                company_name,
             )
-            return _build_fallback()
+            logger.info(
+                "[FALLBACK] preserving_evidence count=%s company=%s",
+                len(collected_signals),
+                company_name,
+            )
+            return _build_fallback(
+                company_name=company_name,
+                domain=domain,
+                collected_signals=collected_signals,
+                inbound_context=inbound_context,
+            )
+
+
+# ── synthesis helpers ──────────────────────────────────────────────────
+
+
+_PAIN_CATEGORIES = frozenset(
+    {
+        "safety_incident",
+        "industry_article",
+        "company_news",
+        "technology_announcement",
+        "company_overview",
+    }
+)
+_BUYING_CATEGORIES = frozenset(
+    {
+        "expansion",
+        "hiring",
+        "partnership",
+        "automation_investment",
+        "technology_announcement",
+        "tech_announcement",
+        "funding",
+        "technology",
+        "press_release",
+        "company_news",
+    }
+)
+_NEWS_CATEGORIES = frozenset(
+    {
+        "company_news",
+        "press_release",
+        "industry_article",
+        "technology_announcement",
+        "company_overview",
+        "expansion",
+        "partnership",
+        "automation_investment",
+    }
+)
+
+
+def _build_fallback(
+    *,
+    company_name: str,
+    domain: str,
+    collected_signals: list[ResearchSignal],
+    inbound_context: str = "",
+) -> dict[str, Any]:
+    """Evidence-preserving fallback when LLM synthesis is unavailable."""
+    signal_dicts = [
+        {
+            "title": s.title,
+            "url": s.url,
+            "source_url": s.url,
+            "date": s.date,
+            "summary": s.summary,
+            "category": s.category,
+            "source_type": s.source_type,
+        }
+        for s in collected_signals
+    ]
+
+    derived_pain = _derive_pain_points(collected_signals)
+    derived_buying = _derive_buying_signals(collected_signals)
+    latest_news = _derive_latest_news(collected_signals)
+
+    # Never leave empty arrays when we have evidence
+    if not derived_pain and collected_signals:
+        for s in collected_signals[:5]:
+            if s.url:
+                derived_pain.append(
+                    {
+                        "pain_point": s.summary if len(s.summary) > 20 else s.title,
+                        "evidence": s.summary or s.title,
+                        "source_url": s.url,
+                    }
+                )
+    if not derived_buying and collected_signals:
+        for s in collected_signals[:5]:
+            if s.url and s.category in _BUYING_CATEGORIES:
+                derived_buying.append(
+                    {
+                        "signal": s.summary if len(s.summary) > 15 else s.title,
+                        "evidence": s.summary or s.title,
+                        "source_url": s.url,
+                    }
+                )
+        if not derived_buying:
+            for s in collected_signals[:3]:
+                if s.url:
+                    derived_buying.append(
+                        {
+                            "signal": s.title,
+                            "evidence": s.summary or s.title,
+                            "source_url": s.url,
+                        }
+                    )
+
+    sources = [s.url for s in collected_signals if s.url]
+    evidence = [
+        {"claim": s.summary or s.title, "source_url": s.url}
+        for s in collected_signals
+        if s.url
+    ]
+
+    # Build a richer description from overview / news signal snippets
+    overview_bits = [
+        s.summary or s.title
+        for s in collected_signals
+        if s.category in ("company_overview", "company_news", "press_release") and s.summary
+    ][:3]
+    if overview_bits:
+        description = " ".join(overview_bits)[:600]
+    else:
+        description = (
+            f"Research completed for {company_name or domain} using "
+            f"{len(collected_signals)} public evidence signals. "
+            "AI synthesis unavailable; collected signals preserved."
+        )
+
+    why_now = (
+        f"Public signals indicate automation, safety, expansion, or technology "
+        f"activity relevant to {company_name or domain}."
+    )
+    if inbound_context.strip():
+        why_now = (
+            f"Inbound interest plus {len(collected_signals)} public signals suggest "
+            f"timely outreach for {company_name or domain} around automation and "
+            "operational improvement themes."
+        )
+
+    return {
+        "company_name": company_name,
+        "domain": domain,
+        "description": description,
+        "industry": None,
+        "business_model": None,
+        "major_operations": None,
+        "geographic_presence": None,
+        "employee_count": None,
+        "location": None,
+        "company_situation": (
+            f"{company_name or domain} shows recent public activity across "
+            f"{len(collected_signals)} signals from company, industry, and "
+            "regulatory sources."
+        ),
+        "latest_news": latest_news,
+        "operational_pain_points": derived_pain,
+        "buying_signals": derived_buying,
+        "business_signals": [
+            {
+                "signal": s.summary or s.title,
+                "category": s.category,
+                "source_url": s.url,
+                "url": s.url,
+                "summary": s.summary or "",
+                "date": s.date,
+                "source_type": s.source_type,
+            }
+            for s in collected_signals
+            if s.url
+        ],
+        "pain_points": [p["pain_point"] for p in derived_pain][:5],
+        "technology_signals": [
+            s.title
+            for s in collected_signals
+            if s.category in (
+                "technology",
+                "technology_announcement",
+                "tech_announcement",
+                "automation_investment",
+            )
+        ],
+        "why_now": why_now,
+        "flytbase_relevance": (
+            "Review preserved public signals for drone automation and remote "
+            "operations fit."
+        ),
+        "flytbase_fit": (
+            "Autonomous inspection, remote operations, and fleet orchestration "
+            "when signals mention monitoring, safety, or automation."
+        ),
+        "recommended_next_action": "Review research signals and qualify based on evidence.",
+        "next_action": "Review research signals and qualify based on evidence.",
+        "recommended_sales_angle": (
+            "Lead with operational intelligence grounded in recent public signals."
+        ),
+        "confidence_score": min(
+            max(len(collected_signals) * 4, 20) if collected_signals else 0,
+            70,
+        ),
+        "recent_signals": signal_dicts,
+        "sources": sources,
+        "evidence": evidence,
+    }
+
+
+def _derive_latest_news(signals: list[ResearchSignal]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for s in signals:
+        if not s.url or s.category not in _NEWS_CATEGORIES:
+            continue
+        key = s.url.lower().rstrip("/")
+        if key in seen:
+            continue
+        seen.add(key)
+        if s.category in ("company_news", "press_release"):
+            news_cat = s.category
+        else:
+            news_cat = "company_news"
+        out.append(
+            {
+                "title": s.title,
+                "url": s.url,
+                "date": s.date,
+                "summary": s.summary or s.title,
+                "category": news_cat,
+            }
+        )
+        if len(out) >= 10:
+            break
+    if not out:
+        for s in signals[:8]:
+            if not s.url:
+                continue
+            out.append(
+                {
+                    "title": s.title,
+                    "url": s.url,
+                    "date": s.date,
+                    "summary": s.summary or s.title,
+                    "category": "company_news",
+                }
+            )
+    return out
+
+
+def _derive_pain_points(signals: list[ResearchSignal]) -> list[dict[str, str]]:
+    out: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for s in signals:
+        if not s.url or s.category not in _PAIN_CATEGORIES:
+            continue
+        key = (s.summary or s.title)[:120]
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(
+            {
+                "pain_point": s.summary if len(s.summary) > 20 else s.title,
+                "evidence": s.summary or s.title,
+                "source_url": s.url,
+            }
+        )
+    return out
+
+
+def _derive_buying_signals(signals: list[ResearchSignal]) -> list[dict[str, str]]:
+    out: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for s in signals:
+        if not s.url or s.category not in _BUYING_CATEGORIES:
+            continue
+        key = (s.summary or s.title)[:120]
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(
+            {
+                "signal": s.summary if len(s.summary) > 15 else s.title,
+                "evidence": s.summary or s.title,
+                "source_url": s.url,
+            }
+        )
+    return out
+
+
+def _merge_synthesis_with_evidence(
+    parsed: dict[str, Any],
+    *,
+    company_name: str,
+    domain: str,
+    collected_signals: list[ResearchSignal],
+    inbound_context: str = "",
+) -> dict[str, Any]:
+    """Fill empty LLM fields from collected signals so evidence is never dropped."""
+    fallback = _build_fallback(
+        company_name=company_name,
+        domain=domain,
+        collected_signals=collected_signals,
+        inbound_context=inbound_context,
+    )
+
+    for key in (
+        "description",
+        "why_now",
+        "recommended_sales_angle",
+        "company_situation",
+        "flytbase_relevance",
+        "flytbase_fit",
+        "recommended_next_action",
+        "industry",
+        "location",
+        "business_model",
+        "major_operations",
+        "geographic_presence",
+    ):
+        if not parsed.get(key) and fallback.get(key):
+            parsed[key] = fallback[key]
+
+    if not parsed.get("company_name"):
+        parsed["company_name"] = company_name
+    if not parsed.get("domain"):
+        parsed["domain"] = domain
+
+    for arr_key in (
+        "operational_pain_points",
+        "buying_signals",
+        "recent_signals",
+        "latest_news",
+        "sources",
+        "evidence",
+        "business_signals",
+        "pain_points",
+        "technology_signals",
+    ):
+        if not parsed.get(arr_key) and fallback.get(arr_key):
+            parsed[arr_key] = fallback[arr_key]
+
+    # Normalize buying_signals
+    normalized_buying: list[dict[str, Any]] = []
+    for item in parsed.get("buying_signals") or []:
+        if isinstance(item, str):
+            normalized_buying.append(
+                {"signal": item, "evidence": item, "source_url": ""}
+            )
+        elif isinstance(item, dict):
+            normalized_buying.append(
+                {
+                    "signal": item.get("signal") or item.get("title") or "",
+                    "evidence": (
+                        item.get("evidence")
+                        or item.get("summary")
+                        or item.get("signal")
+                        or ""
+                    ),
+                    "source_url": item.get("source_url") or item.get("url") or "",
+                }
+            )
+    parsed["buying_signals"] = normalized_buying
+
+    # Normalize latest_news
+    normalized_news: list[dict[str, Any]] = []
+    for item in parsed.get("latest_news") or []:
+        normalized_news.append(_normalize_news_item(item))
+    if not normalized_news:
+        normalized_news = fallback.get("latest_news") or []
+    parsed["latest_news"] = normalized_news
+
+    try:
+        score = int(parsed.get("confidence_score") or 0)
+    except (TypeError, ValueError):
+        score = 0
+    if score <= 0 and collected_signals:
+        score = min(len(collected_signals) * 4, 75)
+    parsed["confidence_score"] = max(0, min(score, 100))
+
+    return parsed
+
+
+def _normalize_recent_signal(raw: Any) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        return {
+            "title": str(raw) if raw else "",
+            "url": "",
+            "date": None,
+            "summary": "",
+            "category": "company_news",
+        }
+    url = raw.get("url") or raw.get("source_url") or ""
+    return {
+        "title": raw.get("title", ""),
+        "url": url,
+        "date": raw.get("date"),
+        "summary": raw.get("summary", ""),
+        "category": raw.get("category", "company_news"),
+        "source_type": raw.get("source_type", "public_web"),
+    }
+
+
+def _normalize_news_item(raw: Any) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        return {
+            "title": str(raw) if raw else "",
+            "url": "",
+            "date": None,
+            "summary": "",
+            "category": "company_news",
+        }
+    return {
+        "title": raw.get("title", "") or "",
+        "url": raw.get("url") or raw.get("source_url") or "",
+        "date": raw.get("date"),
+        "summary": raw.get("summary", "") or "",
+        "category": raw.get("category") or "company_news",
+    }
 
 
 # ── JSON parsing helpers ───────────────────────────────────────────────
