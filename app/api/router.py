@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -19,6 +20,8 @@ from app.db.session import SessionLocal
 from app.intelligence.company_resolver import CompanyResolver
 from app.providers.manager import ProviderManager
 from app.tools import ToolManager, WebContentExtractorTool, WebSearchTool
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1", tags=["research"])
 
@@ -1142,6 +1145,12 @@ async def simulate_inbound_email(
         db,
     )
 
+    logger.info(
+        "[INBOUND] message processed lead_id=%s task_id=%s",
+        lead.id, inbound.get("task_id"),
+    )
+    logger.info("[LEAD] created id=%s company=%s", lead.id, company.name)
+
     # ── 4. Run research enrichment (if no existing report) ────────────
     report = (
         db.query(models.ResearchReport)
@@ -1171,20 +1180,47 @@ async def simulate_inbound_email(
             pass  # Research enrichment is non-blocking
 
     # ── 5. Qualification with research context ────────────────────────
-    qualification = await create_qualification_task(
-        QualifyRequest(
-            company_name=company.name,
-            lead_id=str(lead.id),
-            report_id=str(report.id) if report else None,
-        ),
-        db,
-    )
+    qualification = None
+    try:
+        qualification = await create_qualification_task(
+            QualifyRequest(
+                company_name=company.name,
+                lead_id=str(lead.id),
+                report_id=str(report.id) if report else None,
+            ),
+            db,
+        )
+        logger.info(
+            "[QUALIFICATION] completed lead_id=%s score=%s",
+            lead.id,
+            qualification.get("score") if isinstance(qualification, dict) else None,
+        )
+    except Exception as exc:
+        logger.warning(
+            "[QUALIFICATION] failed lead_id=%s error=%s — continuing without score",
+            lead.id, exc,
+        )
 
     # ── 6. Pipeline evaluation ────────────────────────────────────────
-    pipeline = await evaluate_pipeline(PipelineEvaluateRequest(lead_id=str(lead.id)), db)
+    pipeline = None
+    try:
+        pipeline = await evaluate_pipeline(PipelineEvaluateRequest(lead_id=str(lead.id)), db)
+        logger.info(
+            "[PIPELINE] evaluated lead_id=%s stage=%s",
+            lead.id,
+            pipeline.get("current_stage") if isinstance(pipeline, dict) else None,
+        )
+    except Exception as exc:
+        logger.warning(
+            "[PIPELINE] failed lead_id=%s error=%s — continuing without evaluation",
+            lead.id, exc,
+        )
+
+    # ── 7. Return result (always include lead_id) ─────────────────────
+    logger.info("[REDIRECT] task_id=%s lead_id=%s", inbound.get("task_id"), lead.id)
 
     return {
-        "task_id": inbound["task_id"],
+        "task_id": inbound.get("task_id", ""),
         "company": company.name,
         "contact": body.sender_name.strip(),
         "lead_id": str(lead.id),
