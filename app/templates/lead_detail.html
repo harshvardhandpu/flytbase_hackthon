@@ -51,131 +51,101 @@
         <span class="text-xs bg-slate-800 px-2 py-1 rounded-full text-slate-400 border border-slate-700 capitalize" x-text="company.current_stage?.replace('_', ' ') || 'new'"></span>
       </div>
 
-      <!-- Company Intelligence Section -->
-      <template x-if="intelligence && intelligence.company_situation">
-        <div class="bg-slate-800 rounded-xl border border-cyan-700/30 p-6">
-          <div class="flex items-center gap-2 mb-5">
-            <span class="text-lg">🧠</span>
-            <h3 class="text-sm font-semibold text-slate-200 uppercase tracking-wider">Company Intelligence</h3>
-            <span class="ml-auto text-xs text-slate-500" x-show="intelligence.confidence_score" x-text="'Confidence: ' + intelligence.confidence_score + '%'"></span>
-          </div>
+      <!-- Intelligence + Details grid (2-column) -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- Card 1.5: Company Intelligence (appears below Company Profile in the grid) -->
+        <template x-if="intelligence && intelligence.company_situation">
+          <div class="bg-slate-800 rounded-xl border border-cyan-700/30 p-6 lg:row-span-2">
+            <div class="flex items-center gap-2 mb-5">
+              <span class="text-lg">🧠</span>
+              <h3 class="text-sm font-semibold text-slate-200 uppercase tracking-wider">Company Intelligence</h3>
+              <span class="ml-auto text-xs text-slate-500" x-show="intelligence.confidence_score" x-text="'Confidence: ' + intelligence.confidence_score + '%'"></span>
+            </div>
 
-          <!-- Situation -->
-          <div class="mb-5">
-            <h4 class="text-xs text-slate-500 uppercase tracking-wider mb-2">Current Situation</h4>
-            <p class="text-sm text-slate-200 leading-relaxed" x-text="intelligence.company_situation"></p>
-          </div>
-
-          <!-- Operational Pain Points -->
-          <template x-if="intelligence.operational_pain_points?.length">
+            <!-- Situation -->
             <div class="mb-5">
-              <h4 class="text-xs text-slate-500 uppercase tracking-wider mb-2">Operational Pain Points</h4>
-              <div class="space-y-2">
-                <template x-for="(pp, idx) in intelligence.operational_pain_points" :key="idx">
-                  <div class="p-3 bg-red-900/10 border border-red-800/20 rounded-lg">
-                    <div class="flex items-start gap-2">
-                      <span class="text-red-400 mt-0.5 flex-shrink-0">⚠️</span>
-                      <div>
-                        <p class="text-sm text-slate-200" x-text="pp.pain_point"></p>
-                        <p class="text-xs text-slate-500 mt-0.5" x-text="pp.evidence"></p>
-                        <a x-show="pp.source_url" :href="pp.source_url" target="_blank" class="text-xs text-cyan-400 hover:text-cyan-300 mt-1 inline-block">
-                          🔗 Source
-                        </a>
+              <h4 class="text-xs text-slate-500 uppercase tracking-wider mb-2">Current Situation</h4>
+              <p class="text-sm text-slate-200 leading-relaxed" x-text="intelligence.company_situation"></p>
+            </div>
+
+            <!-- Operational Pain Points -->
+            <template x-if="intelligence.operational_pain_points?.length">
+              <div class="mb-5">
+                <h4 class="text-xs text-slate-500 uppercase tracking-wider mb-2">Operational Pain Points</h4>
+                <div class="space-y-2">
+                  <template x-for="(pp, idx) in intelligence.operational_pain_points" :key="idx">
+                    <div class="p-3 bg-red-900/10 border border-red-800/20 rounded-lg">
+                      <div class="flex items-start gap-2">
+                        <span class="text-red-400 mt-0.5 flex-shrink-0">⚠️</span>
+                        <div>
+                          <p class="text-sm text-slate-200" x-text="pp.pain_point"></p>
+                          <p class="text-xs text-slate-500 mt-0.5" x-text="pp.evidence"></p>
+                          <a x-show="pp.source_url" :href="pp.source_url" target="_blank" class="text-xs text-cyan-400 hover:text-cyan-300 mt-1 inline-block">
+                            🔗 Source
+                          </a>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </template>
+                  </template>
+                </div>
               </div>
-            </div>
-          </template>
+            </template>
 
-          <!-- Buying Signals -->
-          <template x-if="intelligence.buying_signals?.length">
-            <div class="mb-5">
-              <h4 class="text-xs text-slate-500 uppercase tracking-wider mb-2">Buying Signals</h4>
-              <div class="flex flex-wrap gap-2">
-                <template x-for="(bs, idx) in intelligence.buying_signals" :key="idx">
-                  <div class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-green-900/15 border border-green-800/25 rounded-lg">
-                    <span class="text-green-400 text-xs">📈</span>
-                    <span class="text-sm text-slate-200" x-text="bs.signal"></span>
-                    <a x-show="bs.source_url" :href="bs.source_url" target="_blank" class="text-xs text-cyan-400 hover:text-cyan-300">🔗</a>
-                  </div>
-                </template>
-              </div>
-            </div>
-          </template>
-
-          <!-- Business Signals (categorized) -->
-          <template x-if="intelligence.business_signals?.length">
-            <div class="mb-5">
-              <h4 class="text-xs text-slate-500 uppercase tracking-wider mb-2">Business Signals</h4>
-              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <template x-for="(sig, idx) in intelligence.business_signals" :key="idx">
-                  <div class="p-2.5 bg-slate-700/30 rounded-lg border border-slate-600/30">
-                    <div class="flex items-center gap-1.5 mb-1">
-                      <span class="w-1.5 h-1.5 rounded-full"
-                            :class="{
-                              'bg-blue-500': sig.category === 'company_news',
-                              'bg-green-500': sig.category === 'expansion',
-                              'bg-yellow-500': sig.category === 'hiring',
-                              'bg-purple-500': sig.category === 'funding',
-                              'bg-teal-500': sig.category === 'technology',
-                              'bg-orange-500': sig.category === 'automation',
-                              'bg-pink-500': sig.category === 'partnership'
-                            }"></span>
-                      <span class="text-[10px] uppercase tracking-wider font-medium"
-                            :class="{
-                              'text-blue-400': sig.category === 'company_news',
-                              'text-green-400': sig.category === 'expansion',
-                              'text-yellow-400': sig.category === 'hiring',
-                              'text-purple-400': sig.category === 'funding',
-                              'text-teal-400': sig.category === 'technology',
-                              'text-orange-400': sig.category === 'automation',
-                              'text-pink-400': sig.category === 'partnership'
-                            }"
-                            x-text="sig.category?.replace('_', ' ')"></span>
+            <!-- Buying Signals -->
+            <template x-if="intelligence.buying_signals?.length">
+              <div class="mb-5">
+                <h4 class="text-xs text-slate-500 uppercase tracking-wider mb-2">Buying Signals</h4>
+                <div class="flex flex-wrap gap-2">
+                  <template x-for="(bs, idx) in intelligence.buying_signals" :key="idx">
+                    <div class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-green-900/15 border border-green-800/25 rounded-lg">
+                      <span class="text-green-400 text-xs">📈</span>
+                      <span class="text-sm text-slate-200" x-text="bs.signal"></span>
+                      <a x-show="bs.source_url" :href="bs.source_url" target="_blank" class="text-xs text-cyan-400 hover:text-cyan-300">🔗</a>
                     </div>
-                    <p class="text-xs text-slate-300" x-text="sig.signal"></p>
-                    <p class="text-[10px] text-slate-500 mt-0.5" x-text="sig.summary"></p>
-                    <a x-show="sig.source_url" :href="sig.source_url" target="_blank" class="text-[10px] text-cyan-400 hover:text-cyan-300 mt-1 inline-block">
-                      🔗 Source
-                    </a>
-                  </div>
-                </template>
+                  </template>
+                </div>
               </div>
-            </div>
-          </template>
+            </template>
 
-          <!-- Why Now -->
-          <template x-if="intelligence.why_now">
-            <div class="p-3 bg-cyan-900/10 border border-cyan-800/20 rounded-lg">
-              <h4 class="text-xs text-slate-500 uppercase tracking-wider mb-1">Why Contact Now</h4>
-              <p class="text-sm text-cyan-300 leading-relaxed" x-text="intelligence.why_now"></p>
-            </div>
-          </template>
-
-          <!-- Evidence items with sources -->
-          <template x-if="intelligence.evidence?.length">
-            <div class="mt-4 pt-4 border-t border-slate-700/30">
-              <h4 class="text-xs text-slate-500 uppercase tracking-wider mb-2">Evidence Sources</h4>
-              <div class="space-y-1.5">
-                <template x-for="(ev, idx) in intelligence.evidence" :key="idx">
-                  <div class="flex items-start gap-2 text-xs">
-                    <span class="text-slate-600 mt-0.5">•</span>
-                    <span class="text-slate-400" x-text="ev.claim + ': '"></span>
-                    <a :href="ev.source_url" target="_blank" class="text-cyan-400 hover:text-cyan-300 underline truncate max-w-[300px]">
-                      <span x-text="ev.source_url"></span>
-                    </a>
-                  </div>
-                </template>
+            <!-- FlytBase Fit -->
+            <template x-if="intelligence.flytbase_fit">
+              <div class="mb-5">
+                <h4 class="text-xs text-slate-500 uppercase tracking-wider mb-2">FlytBase Fit</h4>
+                <div class="p-3 bg-teal-900/10 border border-teal-800/20 rounded-lg">
+                  <p class="text-sm text-teal-300 leading-relaxed" x-text="intelligence.flytbase_fit"></p>
+                </div>
               </div>
-            </div>
-          </template>
-        </div>
-      </template>
+            </template>
 
-      <!-- 4-card grid -->
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- Why Now -->
+            <template x-if="intelligence.why_now">
+              <div class="mb-5">
+                <h4 class="text-xs text-slate-500 uppercase tracking-wider mb-2">Why Contact Now</h4>
+                <div class="p-3 bg-cyan-900/10 border border-cyan-800/20 rounded-lg">
+                  <p class="text-sm text-cyan-300 leading-relaxed" x-text="intelligence.why_now"></p>
+                </div>
+              </div>
+            </template>
+
+            <!-- Evidence Sources -->
+            <template x-if="intelligence.evidence?.length">
+              <div>
+                <h4 class="text-xs text-slate-500 uppercase tracking-wider mb-2">Evidence Sources</h4>
+                <div class="space-y-1.5">
+                  <template x-for="(ev, idx) in intelligence.evidence" :key="idx">
+                    <div class="flex items-start gap-2 text-xs">
+                      <span class="text-slate-600 mt-0.5">•</span>
+                      <span class="text-slate-400" x-text="ev.claim + ': '"></span>
+                      <a :href="ev.source_url" target="_blank" class="text-cyan-400 hover:text-cyan-300 underline truncate max-w-[200px]">
+                        <span x-text="ev.source_url"></span>
+                      </a>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </template>
+          </div>
+        </template>
         <!-- Card 1: Company Profile -->
         <div class="bg-slate-800 rounded-xl border border-slate-700/50 p-6">
           <div class="flex items-center gap-2 mb-4">
