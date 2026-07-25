@@ -48,6 +48,22 @@ class Settings(BaseSettings):
     def use_psycopg_v3(cls, value: str) -> str:
         return normalize_database_url(value)
 
+    @field_validator("tavily_api_key", mode="before")
+    @classmethod
+    def sanitize_tavily_api_key(cls, value: object) -> str | None:
+        """Normalize TAVILY_API_KEY from env / Railway UI paste.
+
+        Strips whitespace and accidental surrounding quotes. Empty values
+        become ``None`` so WebSearchTool reliably detects a missing key.
+        Never log the raw value.
+        """
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            return None
+        cleaned = value.strip().strip('"').strip("'").strip()
+        return cleaned or None
+
 
 @lru_cache
 def get_settings() -> Settings:

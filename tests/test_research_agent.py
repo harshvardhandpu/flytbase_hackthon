@@ -96,20 +96,22 @@ class TestResearchAgent:
                 '"industry": "Drone Services", "employee_count": 200, '
                 '"location": "San Francisco", "description": "A drone platform.", '
                 '"company_situation": "Scaling operations worldwide.", '
-                '"business_problems": ["Scaling drone ops"], '
-                '"operational_risks": ["Coordination overhead"], '
-                '"business_signals": ["Series A funding"], '
-                '"buying_signals": ["Hiring integration engineers"], '
+                '"operational_pain_points": [{"pain_point": "Scaling drone ops", '
+                '"evidence": "Fleet growth", "source_url": "https://flytbase.com"}], '
+                '"buying_signals": [{"signal": "Hiring integration engineers", '
+                '"evidence": "Open roles", "source_url": "https://flytbase.com"}], '
+                '"recent_signals": [{"title": "Series A", "category": "company_news", '
+                '"summary": "Funding", "source_url": "https://flytbase.com"}], '
+                '"why_now": "Scaling now", '
+                '"recommended_sales_angle": "Lead with operational visibility", '
+                '"confidence_score": 70, '
+                '"business_signals": [{"signal": "Series A funding", '
+                '"category": "funding", "source_url": "https://flytbase.com"}], '
                 '"pain_points": ["Scaling operations"], '
                 '"technology_signals": ["DJI integration"], '
                 '"flytbase_relevance": "High", '
                 '"recommended_next_action": "Demo", '
-                '"recommended_sales_angle": "Lead with operational visibility", '
-                '"industry_incidents": [], '
-                '"sources": ["https://flytbase.com"], '
-                '"citations": [{"source": "FlytBase", '
-                '"url": "https://flytbase.com", '
-                '"key_finding": "Drone platform"}]}'
+                '"sources": ["https://flytbase.com"]}'
             ),
         )
         tools = ToolManager([SimulatedWebSearchTool(), SimulatedContentExtractorTool()])
@@ -121,10 +123,11 @@ class TestResearchAgent:
         assert result.summary == "A drone platform."
         assert result.output_data["findings"]["company_name"] == "FlytBase"
         assert result.output_data["findings"]["industry"] == "Drone Services"
-        assert result.output_data["findings"]["business_signals"] == ["Series A funding"]
-        assert result.output_data["findings"]["buying_signals"] == [
-            "Hiring integration engineers"
-        ]
+        buying = result.output_data["findings"]["buying_signals"]
+        assert isinstance(buying, list) and len(buying) >= 1
+        assert buying[0]["signal"] == "Hiring integration engineers"
+        assert buying[0]["source_url"] == "https://flytbase.com"
+        assert result.output_data["findings"]["recent_signals"]
         assert (
             result.output_data["findings"]["company_situation"]
             == "Scaling operations worldwide."
@@ -133,6 +136,10 @@ class TestResearchAgent:
             result.output_data["findings"]["recommended_sales_angle"]
             == "Lead with operational visibility"
         )
+        # Company overview block for BDR report
+        overview = result.output_data["findings"]["company_overview"]
+        assert overview["description"] == "A drone platform."
+        assert overview["industry"] == "Drone Services"
         assert "report_id" in result.output_data
         assert not result.requires_human_approval
 
@@ -152,7 +159,7 @@ class TestResearchAgent:
     async def test_handles_synthesis_failure(
         self, task_context: AgentContext, task_input: AgentTaskInput
     ) -> None:
-        """When synthesis LLM fails, agent returns fallback report."""
+        """When synthesis LLM fails, agent returns fallback report with evidence."""
         fake_ai = FakeAIProvider(synthesis_response="not valid json at all")
         tools = ToolManager([SimulatedWebSearchTool(), SimulatedContentExtractorTool()])
         tm = make_fake_tm()
@@ -160,9 +167,24 @@ class TestResearchAgent:
         agent = ResearchAgent(ai_provider=fake_ai, tool_manager=tools, task_manager=tm)
         result = await agent.run(task_context, task_input)
 
-        # Should still complete with fallback
-        assert "Research completed for FlytBase" in result.summary
+        # Should still complete with fallback and preserve collected signals
+        assert result.summary  # overview built from signal snippets when available
         assert result.output_data["findings"]["company_name"] == "FlytBase"
+        findings = result.output_data["findings"]
+        # Simulated FlytBase search yields real (non-example) sources
+        assert findings["recent_signals"], "fallback must preserve collected signals"
+        assert findings["sources"]
+        assert not any("example.com" in (u or "") for u in findings["sources"])
+        assert findings["operational_pain_points"] or findings["buying_signals"]
+        # Enterprise BDR fields present even on fallback
+        assert findings.get("company_overview")
+        assert findings.get("latest_news") is not None
+        assert findings["latest_news"] or findings["recent_signals"]
+        # latest_news items have required shape
+        for item in findings["latest_news"]:
+            assert item.get("title")
+            assert item.get("url")
+            assert "category" in item
 
     @pytest.mark.asyncio
     async def test_requires_company_or_domain(self) -> None:

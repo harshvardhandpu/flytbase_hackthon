@@ -9,7 +9,8 @@
     <a href="/inbound" class="text-sm text-cyan-400 hover:text-cyan-300">← Back to inbound messages</a>
     <p class="mt-3 text-sm text-slate-400">
       Test the inbound, qualification, and pipeline workflow without connecting an external mailbox.
-      Matching a known demo account (for example <span class="text-slate-300">SkyGrid</span>) reuses existing lead intelligence.
+      Matching a known demo account (for example <span class="text-slate-300">SkyGrid</span> or
+      <span class="text-slate-300">BHP</span>) reuses existing lead intelligence.
     </p>
   </div>
 
@@ -51,6 +52,14 @@
               class="rounded-lg border border-slate-600 px-4 py-2.5 text-sm font-medium text-slate-300 hover:bg-slate-700/50 disabled:opacity-60">
         Fill SkyGrid demo
       </button>
+      <button type="button" @click="fillBhpDemo()" :disabled="submitting"
+              class="rounded-lg border border-amber-500/40 px-4 py-2.5 text-sm font-medium text-amber-300 hover:bg-amber-500/10 disabled:opacity-60">
+        Fill BHP demo
+      </button>
+      <button type="button" @click="runBhpDemo()" :disabled="submitting"
+              class="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-sm font-medium text-amber-200 hover:bg-amber-500/20 disabled:opacity-60"
+              x-text="submitting ? 'Running…' : 'Run BHP Demo'">
+      </button>
       <span x-show="submitting" class="text-sm text-slate-400">
         Creating the contact, lead, qualification, and pipeline analysis.
       </span>
@@ -74,6 +83,21 @@ function inboundSimulation() {
       this.messageContent =
         "Hi Jane,\n\nThanks for reaching out. We're definitely interested in exploring ways to streamline our fleet operations. The EU expansion is creating some new challenges around remote management.\n\nWould love to schedule a demo. How does next Tuesday at 2pm PT work?\n\nBest,\nSarah Chen\nHead of Operations, SkyGrid Inc.";
       this.error = '';
+    },
+    fillBhpDemo() {
+      this.senderName = 'James Anderson';
+      this.companyName = 'BHP';
+      this.senderEmail = 'james.anderson@bhp.com';
+      this.messageContent =
+        'We are exploring AI-powered drone automation solutions for our mining operations. ' +
+        'We want to improve site monitoring, reduce manual inspections, and increase operational ' +
+        'safety across mining locations. We are interested in understanding how autonomous drone ' +
+        'systems can help our teams.';
+      this.error = '';
+    },
+    async runBhpDemo() {
+      this.fillBhpDemo();
+      await this.submit();
     },
     async submit() {
       this.submitting = true;

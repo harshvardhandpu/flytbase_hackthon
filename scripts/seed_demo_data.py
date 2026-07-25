@@ -6,7 +6,9 @@ Usage:
     source .venv/bin/activate
     python scripts/seed_demo_data.py
 
-This creates 5 demo companies with complete lifecycle data across all agent phases.
+This creates 6 demo companies (including BHP inbound mining demo) with complete
+lifecycle data across all agent phases. Idempotent: re-running skips existing
+companies and inbound messages (matched by from_email + subject).
 """
 
 from __future__ import annotations
@@ -348,6 +350,343 @@ COMPANIES = [
             ]
         },
     },
+    # ── BHP (demo inbound mining scenario) ────────────────────────────
+    {
+        "name": "BHP",
+        "domain": "bhp.com",
+        "industry": "Mining",
+        "employee_count": 40000,
+        "location": "Melbourne, Australia",
+        "profile_data": {
+            "company_name": "BHP",
+            "domain": "bhp.com",
+            "description": (
+                "BHP is a leading global resources company with operations in iron ore, "
+                "copper, coal, and nickel. The company is investing heavily in autonomous "
+                "haulage, remote operations, and AI-assisted site monitoring to improve "
+                "safety and reduce manual inspections across mine sites."
+            ),
+            "location": "Melbourne, Australia",
+            "industry": "Mining",
+            "employee_count": 40000,
+            "business_model": (
+                "Diversified global resources company producing iron ore, copper, "
+                "coal, and nickel for industrial and energy markets."
+            ),
+            "major_operations": (
+                "Large-scale mining operations including Pilbara iron ore, copper "
+                "assets, and autonomous haulage / remote operations programs."
+            ),
+            "geographic_presence": (
+                "Headquarters in Melbourne, Australia; major operations in Australia "
+                "and other global mining jurisdictions."
+            ),
+            "company_overview": {
+                "description": (
+                    "BHP is a leading global resources company with operations in iron ore, "
+                    "copper, coal, and nickel. The company is investing heavily in autonomous "
+                    "haulage, remote operations, and AI-assisted site monitoring to improve "
+                    "safety and reduce manual inspections across mine sites."
+                ),
+                "industry": "Mining",
+                "business_model": (
+                    "Diversified global resources company producing iron ore, copper, "
+                    "coal, and nickel for industrial and energy markets."
+                ),
+                "major_operations": (
+                    "Large-scale mining operations including Pilbara iron ore, copper "
+                    "assets, and autonomous haulage / remote operations programs."
+                ),
+                "geographic_presence": (
+                    "Headquarters in Melbourne, Australia; major operations in Australia "
+                    "and other global mining jurisdictions."
+                ),
+                "employee_count": 40000,
+                "location": "Melbourne, Australia",
+            },
+            "latest_news": [
+                {
+                    "title": "BHP advances autonomous operations across Pilbara",
+                    "url": "https://www.bhp.com/news/autonomous-operations",
+                    "date": "2026",
+                    "summary": (
+                        "BHP continues deployment of autonomous trucks and remote "
+                        "operations centres to improve productivity and worker safety."
+                    ),
+                    "category": "company_news",
+                },
+                {
+                    "title": "Mine site inspection automation and drone monitoring",
+                    "url": "https://www.mining-technology.com/drones-in-mining",
+                    "date": "2026",
+                    "summary": (
+                        "Major miners including BHP are evaluating drone automation "
+                        "to reduce manual inspections and improve site monitoring."
+                    ),
+                    "category": "company_news",
+                },
+            ],
+            "business_signals": [
+                {
+                    "signal": "Expanding autonomous haulage and remote operations programs",
+                    "url": "https://www.bhp.com/about/our-operations",
+                    "date": "2026",
+                    "category": "automation_investment",
+                    "source_type": "official_website",
+                },
+                {
+                    "signal": "Safety and inspection automation prioritized across sites",
+                    "url": "https://www.bhp.com/sustainability/safety",
+                    "date": "2026",
+                    "category": "safety_incident",
+                    "source_type": "safety_report",
+                },
+                {
+                    "signal": "Technology partnerships for digital mining transformation",
+                    "url": "https://www.mining-technology.com/bhp-digital",
+                    "date": "2026",
+                    "category": "technology_announcement",
+                    "source_type": "industry_publication",
+                },
+            ],
+            "recent_signals": [
+                {
+                    "title": "BHP advances autonomous operations across Pilbara",
+                    "url": "https://www.bhp.com/news/autonomous-operations",
+                    "summary": (
+                        "BHP continues deployment of autonomous trucks and remote "
+                        "operations centres to improve productivity and worker safety."
+                    ),
+                    "category": "automation_investment",
+                    "source_type": "press_release",
+                },
+                {
+                    "title": "Mine site inspection automation and drone monitoring",
+                    "url": "https://www.mining-technology.com/drones-in-mining",
+                    "summary": (
+                        "Major miners including BHP are evaluating drone automation "
+                        "to reduce manual inspections and improve site monitoring."
+                    ),
+                    "category": "technology_announcement",
+                    "source_type": "industry_publication",
+                },
+                {
+                    "title": "BHP safety strategy emphasizes reduced exposure",
+                    "url": "https://www.bhp.com/sustainability/safety",
+                    "summary": (
+                        "Safety programs focus on removing people from high-risk "
+                        "inspection and monitoring tasks through automation."
+                    ),
+                    "category": "safety_incident",
+                    "source_type": "safety_report",
+                },
+                {
+                    "title": "Digital transformation and AI in mineral discovery",
+                    "url": "https://finance.yahoo.com/news/bhp-digital-transformation",
+                    "summary": (
+                        "BHP is investing in AI and digital platforms to accelerate "
+                        "exploration and operational decision-making."
+                    ),
+                    "category": "technology_announcement",
+                    "source_type": "industry_publication",
+                },
+            ],
+            "operational_pain_points": [
+                {
+                    "pain_point": "Manual site inspections are slow and expose workers to risk",
+                    "evidence": (
+                        "Safety strategy prioritizes reducing manual inspection exposure "
+                        "across mine sites."
+                    ),
+                    "source_url": "https://www.bhp.com/sustainability/safety",
+                },
+                {
+                    "pain_point": "Site monitoring coverage is limited without automation",
+                    "evidence": (
+                        "Industry coverage highlights demand for drone-based monitoring "
+                        "to improve operational visibility."
+                    ),
+                    "source_url": "https://www.mining-technology.com/drones-in-mining",
+                },
+                {
+                    "pain_point": "Scaling autonomous operations needs unified fleet control",
+                    "evidence": (
+                        "Autonomous haulage expansion increases complexity of remote "
+                        "coordination and fleet management."
+                    ),
+                    "source_url": "https://www.bhp.com/news/autonomous-operations",
+                },
+            ],
+            "buying_signals": [
+                {
+                    "signal": "Active investment in autonomous and remote mining operations",
+                    "evidence": "Public autonomous operations program across Pilbara assets",
+                    "source_url": "https://www.bhp.com/news/autonomous-operations",
+                },
+                {
+                    "signal": "Exploring drone automation for inspection and monitoring",
+                    "evidence": "Industry reports cite BHP among leaders evaluating drone automation",
+                    "source_url": "https://www.mining-technology.com/drones-in-mining",
+                },
+                {
+                    "signal": "Digital transformation / AI platform investment",
+                    "evidence": "AI and digital mining initiatives in public analysis",
+                    "source_url": "https://finance.yahoo.com/news/bhp-digital-transformation",
+                },
+            ],
+            "pain_points": [
+                "manual site inspections",
+                "worker exposure during monitoring",
+                "limited autonomous inspection coverage",
+            ],
+            "technology_signals": [
+                "autonomous haulage",
+                "remote operations centres",
+                "AI/digital mining platforms",
+                "drone inspection interest",
+            ],
+            "why_now": (
+                "BHP is actively modernizing mine operations with autonomy and AI while "
+                "inbound interest specifically requests drone automation for monitoring, "
+                "inspection reduction, and safety."
+            ),
+            "flytbase_relevance": (
+                "High — FlytBase autonomous drone fleet management directly supports "
+                "BHP goals for safer site monitoring, reduced manual inspections, and "
+                "scalable remote operations."
+            ),
+            "recommended_sales_angle": (
+                "Lead with safety and inspection automation — position FlytBase as the "
+                "drone fleet layer that removes people from high-risk inspections while "
+                "feeding real-time site intelligence into remote operations centres."
+            ),
+            "confidence_score": 82,
+            "sources": [
+                "https://www.bhp.com/news/autonomous-operations",
+                "https://www.bhp.com/sustainability/safety",
+                "https://www.mining-technology.com/drones-in-mining",
+                "https://finance.yahoo.com/news/bhp-digital-transformation",
+            ],
+            "evidence": [
+                {
+                    "claim": "BHP is expanding autonomous and remote operations",
+                    "source_url": "https://www.bhp.com/news/autonomous-operations",
+                },
+                {
+                    "claim": "Safety programs prioritize reduced manual exposure",
+                    "source_url": "https://www.bhp.com/sustainability/safety",
+                },
+                {
+                    "claim": "Mining sector adopting drone inspection automation",
+                    "source_url": "https://www.mining-technology.com/drones-in-mining",
+                },
+            ],
+        },
+        "mock_search_results": [
+            {
+                "title": "BHP advances autonomous operations across Pilbara",
+                "url": "https://www.bhp.com/news/autonomous-operations",
+                "snippet": (
+                    "BHP continues deployment of autonomous trucks and remote "
+                    "operations centres to improve productivity and worker safety."
+                ),
+            },
+            {
+                "title": "Drone technology in mining operations",
+                "url": "https://www.mining-technology.com/drones-in-mining",
+                "snippet": (
+                    "Drones transform mining with stockpile measurement, equipment "
+                    "inspection, and safety surveillance — automation is the next step."
+                ),
+            },
+            {
+                "title": "BHP safety and sustainability",
+                "url": "https://www.bhp.com/sustainability/safety",
+                "snippet": (
+                    "BHP safety strategy focuses on eliminating fatalities and reducing "
+                    "exposure through engineering controls and automation."
+                ),
+            },
+            {
+                "title": "BHP digital transformation strategy",
+                "url": "https://finance.yahoo.com/news/bhp-digital-transformation",
+                "snippet": (
+                    "Analysis of BHP's AI and digital mining investments for operations "
+                    "and mineral discovery."
+                ),
+            },
+        ],
+        "intelligence_data": {
+            "company_situation": (
+                "BHP is a global mining leader actively scaling autonomous haulage and "
+                "remote operations while seeking safer, automated inspection and "
+                "monitoring capabilities across sites."
+            ),
+            "business_problems": [
+                "Manual inspections create safety exposure and operational delay",
+                "Site monitoring coverage is hard to scale without automation",
+                "Autonomous programs need consistent aerial data and remote control",
+            ],
+            "operational_risks": [
+                "Continued reliance on manual inspections increases safety risk",
+                "Incomplete aerial monitoring delays incident response",
+                "Fragmented drone tooling may not integrate with remote ops centres",
+            ],
+            "growth_signals": [
+                "autonomous haulage expansion",
+                "remote operations investment",
+                "digital / AI mining initiatives",
+            ],
+            "buying_signals": [
+                "Inbound request for AI-powered drone automation",
+                "Public investment in autonomous mining technology",
+                "Safety-driven automation priorities",
+            ],
+            "technology_signals": [
+                "autonomous haulage",
+                "remote operations centres",
+                "AI platforms",
+            ],
+            "flytbase_relevance": (
+                "High — FlytBase addresses BHP's inspection automation, remote drone "
+                "operations, and fleet management needs for mining sites."
+            ),
+            "industry_incidents": [
+                {
+                    "title": "Manual mine inspections remain high-risk",
+                    "summary": (
+                        "Mining operators continue to report injuries linked to manual "
+                        "inspection of pits, stockpiles, and equipment."
+                    ),
+                    "implication": (
+                        "Autonomous drone inspection reduces exposure while improving "
+                        "inspection frequency — core FlytBase value."
+                    ),
+                }
+            ],
+            "recommended_sales_angle": (
+                "Lead with safety and inspection automation for mining sites; show how "
+                "FlytBase orchestrates autonomous drone missions into remote ops workflows."
+            ),
+            "citations": [
+                {
+                    "source": "BHP Autonomous Operations",
+                    "url": "https://www.bhp.com/news/autonomous-operations",
+                    "key_finding": "Active autonomous and remote operations programs",
+                },
+                {
+                    "source": "BHP Safety",
+                    "url": "https://www.bhp.com/sustainability/safety",
+                    "key_finding": "Safety strategy prioritizes reduced exposure",
+                },
+                {
+                    "source": "Mining Technology — Drones",
+                    "url": "https://www.mining-technology.com/drones-in-mining",
+                    "key_finding": "Drone automation for inspection and monitoring",
+                },
+            ],
+        },
+    },
 ]
 
 # ── Qualification scores per company ───────────────────────────────────
@@ -449,6 +788,30 @@ QUALIFICATION_DATA = [
         "recommended_urgency": "This month",
         "recommended_sales_angle": "Highlight cost savings from automation and remote operations — position as growth enabler for their service expansion",
     },
+    {
+        "company_name": "BHP",
+        "overall_score": 88,
+        "icp_match_score": 85,
+        "buying_signal_score": 92,
+        "company_fit_score": 88,
+        "priority": "HOT",
+        "reasons": [
+            "Inbound request for AI-powered drone automation in mining",
+            "Active autonomous haulage and remote operations programs",
+            "Clear pain: manual inspections and site monitoring safety",
+            "Enterprise scale (40k+ employees) with multi-site operations",
+            "Strong technology adoption signals around AI and automation",
+        ],
+        "risks": [
+            "Long enterprise procurement cycles",
+            "May evaluate multiple drone/automation vendors",
+        ],
+        "recommended_urgency": "This week",
+        "recommended_sales_angle": (
+            "Lead with safety and inspection automation — position FlytBase as the "
+            "autonomous drone fleet layer for mine-site monitoring and remote ops."
+        ),
+    },
 ]
 
 # ── Outreach drafts per company ────────────────────────────────────────
@@ -531,6 +894,36 @@ INBOUND_MESSAGES = [
         "lead_action": "send_technical_info",
         "suggested_reply_body": "Hi Mike,\n\nGreat questions! Let me address each one:\n\n1. **Mixed fleet telemetry**: Yes — our platform is drone-agnostic and aggregates telemetry from any MAVLink-compatible drone. We support real-time telemetry streaming via WebSocket with configurable data pipelines.\n\n2. **Airspace deconfliction**: Our API includes a deconfliction engine that handles geofencing, altitude separation, and temporal scheduling for overlapping operation zones. It's designed for exactly your use case.\n\n3. **Latency**: We've measured sub-200ms latency for command-and-control in production deployments with 4G/5G connectivity. For critical operations, we support edge deployment for single-digit millisecond latency.\n\nGiven your GCP + Go stack, I think you'll appreciate our gRPC API and Go client SDK. We also integrate natively with GCP Pub/Sub for event-driven fleet operations.\n\nWould you like to schedule a technical deep-dive with our engineering team? They can walk through a reference architecture tailored to your setup.\n\nBest,\nJane from FlytBase",
     },
+    {
+        "company_name": "BHP",
+        "from_name": "James Anderson",
+        "from_email": "james.anderson@bhp.com",
+        "subject": "Exploring AI-powered drone automation for mining operations",
+        "body": (
+            "We are exploring AI-powered drone automation solutions for our mining "
+            "operations. We want to improve site monitoring, reduce manual inspections, "
+            "and increase operational safety across mining locations. We are interested "
+            "in understanding how autonomous drone systems can help our teams."
+        ),
+        "intent": "product_inquiry",
+        "sentiment": "positive",
+        "urgency": "high",
+        "lead_action": "schedule_demo",
+        "suggested_reply_body": (
+            "Hi James,\n\n"
+            "Thank you for reaching out — BHP's focus on safer site monitoring and "
+            "reduced manual inspections is exactly where FlytBase delivers.\n\n"
+            "Our autonomous drone fleet platform helps mining operators:\n"
+            "• Run scheduled and on-demand inspection missions remotely\n"
+            "• Reduce on-site manual inspection exposure\n"
+            "• Stream real-time site intelligence into remote operations workflows\n"
+            "• Scale multi-site monitoring from a single command layer\n\n"
+            "I'd love to walk through a mining-site demo tailored to BHP's autonomy "
+            "and safety priorities. Would you have 30 minutes this week?\n\n"
+            "Best,\nJane from FlytBase"
+        ),
+        "status": "pending_review",
+    },
 ]
 
 # ── Pipeline stage order ──────────────────────────────────────────────
@@ -609,6 +1002,23 @@ LEADS_DATA = [
         "contact_email": "raj@precisionag.io",
         "contact_title": "Founder & CEO",
     },
+    {
+        "company_name": "BHP",
+        "status": "qualified",
+        "score": 88,
+        "score_reasoning": (
+            "HOT inbound mining opportunity — explicit interest in AI drone automation "
+            "for site monitoring, inspection reduction, and safety; strong public "
+            "autonomy investment signals."
+        ),
+        "pipeline_entered_days_ago": 1,
+        "pipeline_entered_by": "agent",
+        "pipeline_reason": "Inbound demo lead qualified by QualificationAgent — score 88, HOT priority.",
+        "contact_name": "James Anderson",
+        "contact_email": "james.anderson@bhp.com",
+        "contact_title": "Operations Technology Manager",
+        "source": "inbound",
+    },
 ]
 
 
@@ -625,7 +1035,13 @@ def seed_database() -> None:
             id=_id(),
             name="Default BDR ICP",
             description="Default Ideal Customer Profile for drone industry BDR outreach",
-            industries=["Drone Technology", "Logistics & Delivery", "Agriculture Technology", "Aerial Imaging & Surveying"],
+            industries=[
+                "Drone Technology",
+                "Logistics & Delivery",
+                "Agriculture Technology",
+                "Aerial Imaging & Surveying",
+                "Mining",
+            ],
             min_employees=30,
             max_employees=1000,
             locations=["US", "EU", "India"],
@@ -705,7 +1121,7 @@ def seed_database() -> None:
             status=lead_info["status"],
             score=lead_info["score"],
             score_reasoning=lead_info["score_reasoning"],
-            source="outbound",
+            source=lead_info.get("source", "outbound"),
             created_at=_dt(days=30),
             updated_at=_dt(days=1),
         )
@@ -959,102 +1375,290 @@ def seed_database() -> None:
         db.add(pipeline_status)
         print(f"      🚀 Pipeline status set to '{lead_info['status']}'")
 
-    # ── 4. Create Inbound Messages (for SkyGrid) ──────────────────────
-    skygrid = db.query(models.Company).filter(models.Company.name == "SkyGrid Inc.").first()
-    if skygrid:
-        for i, msg_data in enumerate(INBOUND_MESSAGES):
-            existing_msg = db.query(models.InboundMessage).filter(
-                models.InboundMessage.from_email == msg_data["from_email"],
-                models.InboundMessage.subject == msg_data["subject"],
-            ).first()
-            if existing_msg:
-                print(f"   ℹ️  Inbound message '{msg_data['subject'][:40]}...' already exists, skipping")
-                continue
+    # ── 3b. BHP demo: purge stale research reports (migration-safe) ──
+    # Old Railway/demo reports may contain LinkedIn/X sources or pre-
+    # company_overview schema. Drop them so inbound simulate regenerates.
+    _cleanup_stale_bhp_research(db)
 
-            inbound_task = models.AgentTask(
-                id=_id(),
-                agent_type="inbound",
-                status="completed" if i == 0 else ("waiting_for_approval" if i == 1 else "waiting_for_approval"),
-                company_id=skygrid.id,
-                lead_id=db.query(models.Lead).filter(models.Lead.company_id == skygrid.id).first().id,
-                input_data={"message": {
+    # ── 4. Create Inbound Messages (SkyGrid, DroneFleet, BHP, …) ─────
+    for i, msg_data in enumerate(INBOUND_MESSAGES):
+        company = (
+            db.query(models.Company)
+            .filter(models.Company.name == msg_data["company_name"])
+            .first()
+        )
+        if not company:
+            print(
+                f"   ℹ️  Company '{msg_data['company_name']}' missing — "
+                f"skip inbound '{msg_data['subject'][:40]}'"
+            )
+            continue
+
+        existing_msg = db.query(models.InboundMessage).filter(
+            models.InboundMessage.from_email == msg_data["from_email"],
+            models.InboundMessage.subject == msg_data["subject"],
+        ).first()
+        if existing_msg:
+            print(
+                f"   ℹ️  Inbound message '{msg_data['subject'][:40]}...' "
+                "already exists, skipping"
+            )
+            continue
+
+        lead = (
+            db.query(models.Lead)
+            .filter(models.Lead.company_id == company.id)
+            .first()
+        )
+        contact = (
+            db.query(models.Contact)
+            .filter(models.Contact.company_id == company.id)
+            .first()
+        )
+
+        # First SkyGrid message is pre-approved; others (incl. BHP) pending
+        is_first_skygrid = (
+            msg_data["company_name"] == "SkyGrid Inc."
+            and msg_data["subject"].startswith("Re: Scaling")
+        )
+        explicit_status = msg_data.get("status")
+        msg_status = (
+            explicit_status
+            if explicit_status
+            else ("approved" if is_first_skygrid else "pending_review")
+        )
+        task_status = (
+            "completed" if msg_status == "approved" else "waiting_for_approval"
+        )
+
+        days_ago = 1 if msg_data["company_name"] == "BHP" else max(1, 22 - i * 2)
+
+        inbound_task = models.AgentTask(
+            id=_id(),
+            agent_type="inbound",
+            status=task_status,
+            company_id=company.id,
+            lead_id=lead.id if lead else None,
+            input_data={
+                "message": {
                     "from_email": msg_data["from_email"],
                     "from_name": msg_data["from_name"],
                     "subject": msg_data["subject"],
                     "body": msg_data["body"],
-                }},
-                requires_human_approval=i > 0,
-                created_at=_dt(days=22 - i * 2),
-                updated_at=_dt(days=22 - i * 2),
-            )
-            db.add(inbound_task)
-            db.flush()
+                },
+                "company_name": msg_data["company_name"],
+            },
+            requires_human_approval=msg_status == "pending_review",
+            created_at=_dt(days=days_ago),
+            updated_at=_dt(days=days_ago),
+        )
+        db.add(inbound_task)
+        db.flush()
 
-            # Inbound Message
-            inbound_msg = models.InboundMessage(
-                id=_id(),
-                task_id=inbound_task.id,
-                from_email=msg_data["from_email"],
-                from_name=msg_data["from_name"],
-                subject=msg_data["subject"],
-                body=msg_data["body"],
-                channel="email",
-                intent=msg_data["intent"],
-                sentiment=msg_data["sentiment"],
-                urgency=msg_data["urgency"],
-                lead_action=msg_data["lead_action"],
-                status="approved" if i == 0 else "pending_review",
-                suggested_reply_subject=f"Re: {msg_data['subject']}",
-                suggested_reply_body=msg_data["suggested_reply_body"],
-                received_at=_dt(days=22 - i * 2),
-                created_at=_dt(days=22 - i * 2),
-            )
-            db.add(inbound_msg)
+        inbound_msg = models.InboundMessage(
+            id=_id(),
+            task_id=inbound_task.id,
+            from_email=msg_data["from_email"],
+            from_name=msg_data["from_name"],
+            subject=msg_data["subject"],
+            body=msg_data["body"],
+            channel="email",
+            lead_id=lead.id if lead else None,
+            contact_id=contact.id if contact else None,
+            company_id=company.id,
+            intent=msg_data["intent"],
+            sentiment=msg_data["sentiment"],
+            urgency=msg_data["urgency"],
+            confidence=0.92,
+            lead_action=msg_data["lead_action"],
+            status=msg_status,
+            suggested_reply_subject=f"Re: {msg_data['subject']}",
+            suggested_reply_body=msg_data["suggested_reply_body"],
+            received_at=_dt(days=days_ago),
+            created_at=_dt(days=days_ago),
+        )
+        db.add(inbound_msg)
 
-            if i == 0:
-                inbound_msg.reviewed_by = "BDR (Auto-approved)"
-                inbound_msg.reviewed_at = _dt(days=21)
+        if msg_status == "approved":
+            inbound_msg.reviewed_by = "BDR (Auto-approved)"
+            inbound_msg.reviewed_at = _dt(days=max(1, days_ago - 1))
 
-            _add_log(db, inbound_task.id, "inbound_started", "Processing inbound message", {"from": msg_data["from_email"]}, _dt(days=22 - i * 2, hours=1))
-            _add_log(db, inbound_task.id, "intent_classified", f"Intent classified as {msg_data['intent']}", {"intent": msg_data["intent"], "confidence": 0.92}, _dt(days=22 - i * 2))
-            _add_log(db, inbound_task.id, "reply_generated", "Suggested reply generated", {}, _dt(days=22 - i * 2))
-            _add_log(db, inbound_task.id, "task_completed", "Inbound task completed", {}, _dt(days=22 - i * 2))
+        _add_log(
+            db,
+            inbound_task.id,
+            "inbound_started",
+            "Processing inbound message",
+            {"from": msg_data["from_email"], "company": msg_data["company_name"]},
+            _dt(days=days_ago, hours=1),
+        )
+        _add_log(
+            db,
+            inbound_task.id,
+            "intent_classified",
+            f"Intent classified as {msg_data['intent']}",
+            {"intent": msg_data["intent"], "confidence": 0.92},
+            _dt(days=days_ago),
+        )
+        _add_log(
+            db,
+            inbound_task.id,
+            "reply_generated",
+            "Suggested reply generated",
+            {},
+            _dt(days=days_ago),
+        )
+        _add_log(
+            db,
+            inbound_task.id,
+            "task_completed",
+            "Inbound task completed",
+            {},
+            _dt(days=days_ago),
+        )
 
-            print(f"      📨 Inbound message created from {msg_data['from_name']} — intent: {msg_data['intent']}")
+        print(
+            f"      📨 Inbound from {msg_data['from_name']} "
+            f"({msg_data['company_name']}) — intent: {msg_data['intent']}"
+        )
 
     # ── 5. Create Conversations for SkyGrid (demo history) ────────────
-    skygrid_lead = db.query(models.Lead).filter(models.Lead.company_id == skygrid.id).first()
-    if skygrid_lead:
-        existing_convos = db.query(models.Conversation).filter(
-            models.Conversation.lead_id == skygrid_lead.id
-        ).count()
-        if existing_convos == 0:
-            conversation = models.Conversation(
-                id=_id(),
-                company_id=skygrid.id,
-                lead_id=skygrid_lead.id,
-                contact_id=db.query(models.Contact).filter(models.Contact.company_id == skygrid.id).first().id,
-                direction="inbound",
-                channel="email",
-                subject="Re: Scaling SkyGrid's drone fleet operations",
-                body=INBOUND_MESSAGES[0]["body"],
-                occurred_at=_dt(days=22),
-            )
-            db.add(conversation)
-            print("      💬 Conversation record created")
+    skygrid = db.query(models.Company).filter(models.Company.name == "SkyGrid Inc.").first()
+    if skygrid:
+        skygrid_lead = (
+            db.query(models.Lead)
+            .filter(models.Lead.company_id == skygrid.id)
+            .first()
+        )
+        if skygrid_lead:
+            existing_convos = db.query(models.Conversation).filter(
+                models.Conversation.lead_id == skygrid_lead.id
+            ).count()
+            if existing_convos == 0:
+                skygrid_contact = (
+                    db.query(models.Contact)
+                    .filter(models.Contact.company_id == skygrid.id)
+                    .first()
+                )
+                conversation = models.Conversation(
+                    id=_id(),
+                    company_id=skygrid.id,
+                    lead_id=skygrid_lead.id,
+                    contact_id=skygrid_contact.id if skygrid_contact else None,
+                    direction="inbound",
+                    channel="email",
+                    subject="Re: Scaling SkyGrid's drone fleet operations",
+                    body=INBOUND_MESSAGES[0]["body"],
+                    occurred_at=_dt(days=22),
+                )
+                db.add(conversation)
+                print("      💬 SkyGrid conversation record created")
+
+    # BHP conversation (demo history)
+    bhp = db.query(models.Company).filter(models.Company.name == "BHP").first()
+    if bhp:
+        bhp_lead = db.query(models.Lead).filter(models.Lead.company_id == bhp.id).first()
+        if bhp_lead:
+            existing_bhp_convos = db.query(models.Conversation).filter(
+                models.Conversation.lead_id == bhp_lead.id
+            ).count()
+            if existing_bhp_convos == 0:
+                bhp_contact = (
+                    db.query(models.Contact)
+                    .filter(models.Contact.company_id == bhp.id)
+                    .first()
+                )
+                bhp_msg = next(
+                    (m for m in INBOUND_MESSAGES if m["company_name"] == "BHP"),
+                    None,
+                )
+                if bhp_msg:
+                    db.add(
+                        models.Conversation(
+                            id=_id(),
+                            company_id=bhp.id,
+                            lead_id=bhp_lead.id,
+                            contact_id=bhp_contact.id if bhp_contact else None,
+                            direction="inbound",
+                            channel="email",
+                            subject=bhp_msg["subject"],
+                            body=bhp_msg["body"],
+                            occurred_at=_dt(days=1),
+                        )
+                    )
+                    print("      💬 BHP conversation record created")
 
     db.commit()
     db.close()
 
     print("\n✨  Seed complete! Here's what was created:")
-    print("   5 companies with complete lifecycle data")
+    print("   6 companies with complete lifecycle data (incl. BHP demo)")
     print("   Research reports + qualification scores for all")
     print("   Outreach drafts (3 pending approval, 1 approved)")
-    print("   3 inbound messages from SkyGrid (1 approved, 2 pending)")
-    print("   Pipeline positions across 5 stages")
+    print("   Inbound messages: SkyGrid + DroneFleet + BHP demo")
+    print("   Pipeline positions across stages")
     print("   Activity logs for all agent tasks")
     print("\n   ▶️  Start the server and visit http://localhost:8000")
+    print("   ▶️  Inbound demo: SkyGrid + BHP ready under /inbound")
     print()
+
+
+def _cleanup_stale_bhp_research(db: SessionLocal) -> None:
+    """Delete stale BHP ResearchReport rows so the demo uses fresh schema.
+
+    Safe / idempotent: only touches BHP (name or bhp.com). Nulls FK
+    pointers on qualification/outreach/briefs before delete. No schema change.
+    """
+    from app.intelligence.research_quality import is_stale_research_report, stale_reason
+
+    bhp = (
+        db.query(models.Company)
+        .filter(
+            (models.Company.name == "BHP") | (models.Company.domain == "bhp.com")
+        )
+        .first()
+    )
+    if not bhp:
+        return
+
+    reports = (
+        db.query(models.ResearchReport)
+        .filter(models.ResearchReport.company_id == bhp.id)
+        .all()
+    )
+    removed = 0
+    for report in reports:
+        if not is_stale_research_report(report):
+            continue
+        rid = report.id
+        reason = stale_reason(report)
+        db.query(models.QualificationResult).filter(
+            models.QualificationResult.report_id == rid
+        ).update(
+            {models.QualificationResult.report_id: None},
+            synchronize_session=False,
+        )
+        db.query(models.OutreachDraft).filter(
+            models.OutreachDraft.report_id == rid
+        ).update({models.OutreachDraft.report_id: None}, synchronize_session=False)
+        db.query(models.CompanyIntelligenceBrief).filter(
+            models.CompanyIntelligenceBrief.report_id == rid
+        ).update(
+            {models.CompanyIntelligenceBrief.report_id: None},
+            synchronize_session=False,
+        )
+        db.delete(report)
+        removed += 1
+        print(f"   🧹 Removed stale BHP research report {rid} ({reason})")
+
+    if removed:
+        db.flush()
+        # Refresh company profile from latest good seed findings if present
+        bhp_seed = next((c for c in COMPANIES if c["name"] == "BHP"), None)
+        if bhp_seed and bhp_seed.get("profile_data"):
+            bhp.profile_data = bhp_seed["profile_data"]
+            print("   🧹 Refreshed BHP company.profile_data from seed template")
+    else:
+        print("   ℹ️  No stale BHP research reports to clean")
 
 
 def _add_log(

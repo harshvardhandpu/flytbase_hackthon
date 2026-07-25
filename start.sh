@@ -20,6 +20,13 @@ echo "=== ScoutOS Starting ==="
 echo "Environment: ${APP_ENV}"
 echo "Port: ${PORT}"
 
+# ── Temporary Tavily runtime debug (never print secret values) ──────
+if [ -n "${TAVILY_API_KEY:-}" ]; then
+  echo "[TAVILY] configured=true"
+else
+  echo "[TAVILY] configured=false"
+fi
+
 # ── Database Migrations ─────────────────────────────────────────────
 echo ""
 echo "--- Running database migrations ---"

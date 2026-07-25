@@ -1,5 +1,8 @@
+import logging
+import os
 import subprocess
 import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -9,8 +12,23 @@ from fastapi.templating import Jinja2Templates
 from app.api.router import router as api_router
 from app.config import get_settings
 
+logger = logging.getLogger(__name__)
 settings = get_settings()
-app = FastAPI(title=settings.app_name, version="0.1.0")
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Temporary debug: report whether TAVILY_API_KEY is present at runtime.
+
+    Never logs the key value.
+    """
+    key = os.getenv("TAVILY_API_KEY")
+    configured = bool(key and key.strip())
+    logger.info("[TAVILY] configured=%s", "true" if configured else "false")
+    yield
+
+
+app = FastAPI(title=settings.app_name, version="0.1.0", lifespan=lifespan)
 
 # ── API routes ─────────────────────────────────────────────────────────
 app.include_router(api_router)

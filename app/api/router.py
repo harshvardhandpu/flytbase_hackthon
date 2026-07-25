@@ -88,30 +88,51 @@ def build_runtime(db: Session) -> AgentRuntime:
 
 
 def _is_simulated_placeholder_research(report: models.ResearchReport) -> bool:
-    """True when a cached report only has simulated example.com sources.
+    """Backward-compatible alias — use :func:`is_stale_research_report`."""
+    from app.intelligence.research_quality import is_stale_research_report
 
-    Those reports were produced without a working Tavily key. Reusing them
-    would permanently hide real search after TAVILY_API_KEY is configured.
+    return is_stale_research_report(report)
+
+
+def _is_stale_research_report(report: models.ResearchReport) -> bool:
+    """True when a cached ResearchReport must be regenerated.
+
+    Stale when sources include LinkedIn/X/example.com, schema lacks
+    ``company_overview``, or pain/buying fields look like raw article dumps.
     """
-    findings = report.findings or {}
-    sources = findings.get("sources") or []
-    # Normalize list[str] and list[dict] shapes
-    urls: list[str] = []
-    for item in sources:
-        if isinstance(item, str):
-            urls.append(item)
-        elif isinstance(item, dict) and item.get("url"):
-            urls.append(str(item["url"]))
-    if not urls:
-        # Also check report.sources column
-        for item in report.sources or []:
-            if isinstance(item, dict) and item.get("url"):
-                urls.append(str(item["url"]))
-            elif isinstance(item, str):
-                urls.append(item)
-    if not urls:
-        return False
-    return all("example.com" in u for u in urls)
+    from app.intelligence.research_quality import is_stale_research_report
+
+    return is_stale_research_report(report)
+
+
+def _discard_stale_research_report(
+    db: Session,
+    report: models.ResearchReport,
+) -> bool:
+    """Detach FK references and delete a stale ResearchReport safely.
+
+    Does not cascade-delete qualifications/outreach — only nulls report_id
+    pointers so regeneration can proceed without schema changes.
+
+    Returns True if the row was deleted.
+    """
+    rid = report.id
+    db.query(models.QualificationResult).filter(
+        models.QualificationResult.report_id == rid
+    ).update({models.QualificationResult.report_id: None}, synchronize_session=False)
+    db.query(models.OutreachDraft).filter(
+        models.OutreachDraft.report_id == rid
+    ).update({models.OutreachDraft.report_id: None}, synchronize_session=False)
+    db.query(models.CompanyIntelligenceBrief).filter(
+        models.CompanyIntelligenceBrief.report_id == rid
+    ).update(
+        {models.CompanyIntelligenceBrief.report_id: None},
+        synchronize_session=False,
+    )
+    db.delete(report)
+    db.flush()
+    logger.info("[RESEARCH] deleted stale report_id=%s", rid)
+    return True
 
 
 # ── endpoints ───────────────────────────────────────────────────────────
@@ -1183,25 +1204,85 @@ async def simulate_inbound_email(
     logger.info("[LEAD] id=%s company=%s", lead.id, company.name)
 
     # ── 4. Run research enrichment directly (not via create_research_task) ─
-    report = (
+    # Prefer newest non-stale report. Stale = LinkedIn/X/example sources,
+    # missing company_overview schema, or raw article dumps in pain/buying.
+    from app.intelligence.research_quality import (
+        is_stale_research_report,
+        stale_reason,
+    )
+
+    candidate_reports = (
         db.query(models.ResearchReport)
         .filter(models.ResearchReport.company_id == company.id)
         .order_by(models.ResearchReport.created_at.desc())
-        .first()
+        .all()
     )
-
-    # Discard cached research that only has simulated placeholder sources so
-    # Tavily can run after the API key is configured on Railway.
-    if report is not None and _is_simulated_placeholder_research(report):
-        logger.info(
-            "[SEARCH] discarding simulated placeholder research report_id=%s "
-            "so Tavily can re-run",
-            report.id,
+    report = None
+    for candidate in candidate_reports:
+        stale = is_stale_research_report(candidate)
+        reason = stale_reason(candidate) if stale else "fresh"
+        created = (
+            candidate.created_at.isoformat()
+            if getattr(candidate, "created_at", None)
+            else None
         )
-        report = None
+        logger.info(
+            "[RESEARCH CACHE] candidate_report_id=%s created_at=%s "
+            "is_stale=%s reason=%s company=%s",
+            candidate.id,
+            created,
+            "true" if stale else "false",
+            reason,
+            company.name,
+        )
+        if not stale:
+            report = candidate
+            logger.info(
+                "[RESEARCH CACHE] action=reuse report_id=%s company=%s",
+                candidate.id,
+                company.name,
+            )
+            break
+
+        logger.info(
+            "[RESEARCH CACHE] action=delete report_id=%s reason=%s company=%s",
+            candidate.id,
+            reason,
+            company.name,
+        )
+        try:
+            _discard_stale_research_report(db, candidate)
+        except Exception as exc:  # noqa: BLE001 — skip reuse even if delete fails
+            logger.warning(
+                "[RESEARCH CACHE] action=delete_failed report_id=%s error=%s",
+                candidate.id,
+                type(exc).__name__,
+            )
+
+    # Persist deletes before generating a new report so the old id cannot
+    # reappear if a later step fails mid-request.
+    if candidate_reports and report is None:
+        try:
+            db.commit()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "[RESEARCH CACHE] commit after stale purge failed: %s",
+                type(exc).__name__,
+            )
+            try:
+                db.rollback()
+            except Exception:  # noqa: BLE001
+                pass
 
     report_id: str | None = None
     if not report:
+        logger.info(
+            "[RESEARCH CACHE] action=new_research company=%s domain=%s "
+            "candidates_seen=%s",
+            effective_name,
+            resolved_domain,
+            len(candidate_reports),
+        )
         logger.info(
             "[WORKFLOW] research started for company=%s domain=%s",
             effective_name, resolved_domain,
@@ -1218,6 +1299,8 @@ async def simulate_inbound_email(
                 input_data={
                     "company_name": effective_name,
                     "domain": resolved_domain,
+                    # Helps synthesis why_now / sales angle (not used as fact source)
+                    "inbound_message": body.message_content.strip(),
                 },
                 company_id=company.id,
             )
@@ -1264,6 +1347,14 @@ async def simulate_inbound_email(
             # evidence is stored at top-level output_data, not in findings
             evidence_count = len(research_result.output_data.get("evidence", []))
             logger.info(
+                "[RESEARCH CACHE] action=new_research_complete report_id=%s "
+                "signals=%s evidence=%s company=%s",
+                report_id,
+                signal_count,
+                evidence_count,
+                effective_name,
+            )
+            logger.info(
                 "[WORKFLOW] research completed signals=%s evidence=%s company=%s",
                 signal_count, evidence_count, effective_name,
             )
@@ -1280,6 +1371,11 @@ async def simulate_inbound_email(
     else:
         report_id = str(report.id) if report.id else None
         logger.info(
+            "[RESEARCH CACHE] action=reuse report_id=%s company=%s",
+            report_id,
+            company.name,
+        )
+        logger.info(
             "[WORKFLOW] existing research found report_id=%s",
             report_id,
         )
@@ -1294,6 +1390,16 @@ async def simulate_inbound_email(
     }
     if report:
         rf = report.findings or {}
+        overview = rf.get("company_overview") or {
+            "description": rf.get("description"),
+            "industry": rf.get("industry"),
+            "business_model": rf.get("business_model"),
+            "major_operations": rf.get("major_operations"),
+            "geographic_presence": rf.get("geographic_presence"),
+            "employee_count": rf.get("employee_count"),
+            "location": rf.get("location"),
+        }
+        latest_news = rf.get("latest_news") or []
         research_summary = {
             "signals_count": len(rf.get("recent_signals", [])),
             "sources": rf.get("sources", [])[:5],
@@ -1301,10 +1407,18 @@ async def simulate_inbound_email(
                 p.get("pain_point", "") for p in rf.get("operational_pain_points", [])[:3]
             ],
             "buying_signals": [
-                s.get("signal", "") for s in rf.get("buying_signals", [])[:3]
+                s.get("signal", "") if isinstance(s, dict) else str(s)
+                for s in rf.get("buying_signals", [])[:3]
             ],
             "evidence_count": len(rf.get("evidence", [])),
             "report_id": report_id,
+            "company_overview": overview,
+            "latest_news": latest_news[:5],
+            "description": rf.get("description"),
+            "industry": rf.get("industry"),
+            "why_now": rf.get("why_now"),
+            "recommended_sales_angle": rf.get("recommended_sales_angle"),
+            "confidence_score": rf.get("confidence_score"),
         }
 
     # ── 6. Qualification with research context ────────────────────────
@@ -1554,6 +1668,20 @@ async def get_inbound_analysis(
         models.InboundMessage.task_id == uid
     ).first()
 
+    company_name = ""
+    if msg and msg.company_id:
+        company = db.query(models.Company).filter(
+            models.Company.id == msg.company_id
+        ).first()
+        if company:
+            company_name = company.name or ""
+    if not company_name and task.company_id:
+        company = db.query(models.Company).filter(
+            models.Company.id == task.company_id
+        ).first()
+        if company:
+            company_name = company.name or ""
+
     return InboundAnalysisResponse(
         task_id=str(task.id),
         status=task.status,
@@ -1565,6 +1693,7 @@ async def get_inbound_analysis(
             "subject": msg.subject if msg else "",
             "body": msg.body if msg else "",
             "channel": msg.channel if msg else "",
+            "company_name": company_name,
         } if msg else {},
         analysis={
             "intent": msg.intent if msg else None,
@@ -2091,6 +2220,20 @@ async def get_task_logs(
 # ── Lead detail endpoint ──────────────────────────────────────────────
 
 
+class BusinessSignalResponse(BaseModel):
+    """Structured business signal for lead detail.
+
+    Supports both legacy string signals (``{"signal": "..."}`` after
+    normalization) and research-agent object signals with URL/category.
+    """
+
+    signal: str = ""
+    url: str | None = None
+    date: str | None = None
+    category: str | None = None
+    source_type: str | None = None
+
+
 class LeadDetailResponse(BaseModel):
     lead_id: str
     company_name: str = ""
@@ -2099,7 +2242,7 @@ class LeadDetailResponse(BaseModel):
     employee_count: int | None = None
     location: str = ""
     description: str = ""
-    business_signals: list[str] = []
+    business_signals: list[BusinessSignalResponse] = []
     technology_signals: list[str] = []
     pain_points: list[str] = []
     flytbase_relevance: str = ""
@@ -2108,6 +2251,58 @@ class LeadDetailResponse(BaseModel):
     days_in_stage: int = 0
     overall_score: int | None = None
     priority: str | None = None
+
+
+def _normalize_business_signals(raw: Any) -> list[BusinessSignalResponse]:
+    """Normalize DB profile business_signals for LeadDetailResponse.
+
+    - string item → ``{"signal": item}``
+    - dict item → preserve known fields (map ``source_url`` → ``url``)
+    - other / empty → skipped
+    """
+    if not raw:
+        return []
+    if not isinstance(raw, list):
+        return []
+
+    normalized: list[BusinessSignalResponse] = []
+    for item in raw:
+        if isinstance(item, str):
+            text = item.strip()
+            if text:
+                normalized.append(BusinessSignalResponse(signal=text))
+            continue
+        if isinstance(item, dict):
+            signal = (
+                item.get("signal")
+                or item.get("summary")
+                or item.get("title")
+                or ""
+            )
+            if not isinstance(signal, str):
+                signal = str(signal) if signal is not None else ""
+            url = item.get("url") or item.get("source_url")
+            if url is not None and not isinstance(url, str):
+                url = str(url)
+            date = item.get("date")
+            if date is not None and not isinstance(date, str):
+                date = str(date)
+            category = item.get("category")
+            if category is not None and not isinstance(category, str):
+                category = str(category)
+            source_type = item.get("source_type")
+            if source_type is not None and not isinstance(source_type, str):
+                source_type = str(source_type)
+            normalized.append(
+                BusinessSignalResponse(
+                    signal=signal.strip() if signal else "",
+                    url=url,
+                    date=date,
+                    category=category,
+                    source_type=source_type,
+                )
+            )
+    return normalized
 
 
 @router.get("/leads/{lead_id}/detail", response_model=LeadDetailResponse)
@@ -2154,6 +2349,14 @@ async def get_lead_detail(
     # Location is stored in profile_data, not a top-level column
     location = profile.get("location", "") or ""
 
+    # Normalize business_signals so both legacy strings and structured
+    # research objects validate against LeadDetailResponse.
+    business_signals = _normalize_business_signals(profile.get("business_signals", []))
+
+    # technology_signals / pain_points may still be mixed shapes; coerce to str
+    technology_signals = _normalize_string_list(profile.get("technology_signals", []))
+    pain_points = _normalize_string_list(profile.get("pain_points", []))
+
     return LeadDetailResponse(
         lead_id=str(lead.id),
         company_name=company.name if company else "",
@@ -2162,16 +2365,38 @@ async def get_lead_detail(
         employee_count=company.employee_count or profile.get("employee_count"),
         location=location,
         description=profile.get("description", ""),
-        business_signals=profile.get("business_signals", []),
-        technology_signals=profile.get("technology_signals", []),
-        pain_points=profile.get("pain_points", []),
-        flytbase_relevance=profile.get("flytbase_relevance", ""),
+        business_signals=business_signals,
+        technology_signals=technology_signals,
+        pain_points=pain_points,
+        flytbase_relevance=profile.get("flytbase_relevance", "") or "",
         current_stage=current_stage,
         stage_health=stage_health,
         days_in_stage=days_in_stage,
         overall_score=lead.score,
         priority=_score_to_priority(lead.score),
     ).model_dump()
+
+
+def _normalize_string_list(raw: Any) -> list[str]:
+    """Coerce a profile list field to list[str] for response validation."""
+    if not raw or not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    for item in raw:
+        if isinstance(item, str):
+            if item.strip():
+                out.append(item)
+        elif isinstance(item, dict):
+            text = (
+                item.get("signal")
+                or item.get("pain_point")
+                or item.get("summary")
+                or item.get("title")
+                or ""
+            )
+            if text:
+                out.append(str(text))
+    return out
 
 
 # ── Pipeline helpers ────────────────────────────────────────────────────

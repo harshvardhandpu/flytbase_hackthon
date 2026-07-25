@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from app.config import get_settings
-from app.tools.web_search import WebSearchTool
+from app.tools.web_search import WebSearchTool, resolve_tavily_api_key
 
-_HAS_TAVILY_KEY = bool(get_settings().tavily_api_key)
+_HAS_TAVILY_KEY = bool(get_settings().tavily_api_key or os.getenv("TAVILY_API_KEY"))
 
 
 class TestWebSearchTool:
@@ -61,6 +63,43 @@ class TestWebSearchTool:
         result = await tool.execute({"query": "test", "max_results": 3})
         # Should fall back to simulated on API error
         assert result.content["result_count"] > 0
+        assert result.content.get("simulated") is True
+
+    @pytest.mark.asyncio
+    async def test_missing_key_uses_fallback_provider(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Missing key must route to fallback and log provider=fallback."""
+        import logging
+
+        tool = WebSearchTool()
+        tool._api_key = None
+        tool._simulated = True
+        with caplog.at_level(logging.INFO, logger="app.tools.web_search"):
+            result = await tool.execute({"query": "BHP mining", "max_results": 2})
+        assert result.content.get("simulated") is True
+        assert any("[SEARCH] provider=fallback" in r.message for r in caplog.records)
+
+    def test_resolve_tavily_api_key_prefers_os_environ(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Railway injects TAVILY_API_KEY into os.environ — that must win."""
+        monkeypatch.setenv("TAVILY_API_KEY", "tvly-from-environ")
+        assert resolve_tavily_api_key() == "tvly-from-environ"
+
+    def test_tavily_init_logs_key_present(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        import logging
+
+        monkeypatch.setenv("TAVILY_API_KEY", "tvly-init-check")
+        with caplog.at_level(logging.INFO, logger="app.tools.web_search"):
+            tool = WebSearchTool()
+        assert tool._api_key == "tvly-init-check"
+        assert not tool._simulated
+        assert any(
+            "[TAVILY INIT] key_present=true" in r.message for r in caplog.records
+        )
 
     def test_tool_metadata(self, tool: WebSearchTool) -> None:
         assert tool.name == "web_search"

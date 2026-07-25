@@ -177,8 +177,9 @@
             <div class="mt-4 pt-4 border-t border-slate-700/30">
               <h4 class="text-xs text-slate-500 uppercase tracking-wider mb-2">Business Signals</h4>
               <div class="flex flex-wrap gap-2">
-                <template x-for="signal in company.business_signals" :key="signal">
-                  <span class="text-xs bg-blue-900/20 text-blue-400 px-2 py-1 rounded-full border border-blue-800/30" x-text="signal"></span>
+                <template x-for="(signal, idx) in company.business_signals" :key="idx">
+                  <span class="text-xs bg-blue-900/20 text-blue-400 px-2 py-1 rounded-full border border-blue-800/30"
+                        x-text="typeof signal === 'string' ? signal : (signal.signal || signal.summary || '')"></span>
                 </template>
               </div>
             </div>

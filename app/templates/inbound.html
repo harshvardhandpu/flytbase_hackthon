@@ -33,12 +33,24 @@
       <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 class="text-base font-semibold text-slate-200">Inbox activity</h2>
-          <p class="mt-1 text-sm text-slate-400">Review inbound signals and suggested next steps.</p>
+          <p class="mt-1 text-sm text-slate-400">
+            Review inbound signals and suggested next steps.
+            Demo conversations: <span class="text-slate-300">SkyGrid</span> + <span class="text-slate-300">BHP</span>.
+          </p>
         </div>
-        <a href="/inbound/new" class="inline-flex items-center justify-center rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-4 py-2.5 text-sm font-medium text-cyan-300 transition-colors hover:bg-cyan-500/20">
-          New Inbound Email
-        </a>
+        <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <button type="button"
+                  @click="runBhpDemo()"
+                  :disabled="runningDemo"
+                  class="inline-flex items-center justify-center rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-sm font-medium text-amber-300 transition-colors hover:bg-amber-500/20 disabled:cursor-wait disabled:opacity-60">
+            <span x-text="runningDemo ? 'Running BHP Demo…' : 'Run BHP Demo'"></span>
+          </button>
+          <a href="/inbound/new" class="inline-flex items-center justify-center rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-4 py-2.5 text-sm font-medium text-cyan-300 transition-colors hover:bg-cyan-500/20">
+            New Inbound Email
+          </a>
+        </div>
       </div>
+      <p x-show="demoError" x-text="demoError" class="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300"></p>
 
       <!-- Stats bar -->
       <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -82,8 +94,12 @@
               </div>
 
               <div class="flex-1 min-w-0">
-                <div class="flex items-center gap-2 mb-0.5">
-                  <span class="text-sm font-medium text-slate-200" x-text="msg.from_name || msg.from_email || 'Unknown'"></span>
+                <div class="flex items-center gap-2 mb-0.5 flex-wrap">
+                  <span class="text-sm font-medium text-slate-200"
+                        x-text="msg.company_name || msg.from_name || msg.from_email || 'Unknown'"></span>
+                  <template x-if="msg.company_name && msg.from_name">
+                    <span class="text-xs text-slate-500" x-text="'· ' + msg.from_name"></span>
+                  </template>
                   <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium"
                         :class="{
                           'bg-yellow-900/30 text-yellow-400 border border-yellow-800': msg.status === 'pending_review',
@@ -247,10 +263,45 @@ function inboundApp() {
     loading: true,
     messages: [],
     expanded: {},
+    runningDemo: false,
+    demoError: '',
 
     async init() {
       await this.loadMessages();
       this.loading = false;
+    },
+
+    async runBhpDemo() {
+      this.runningDemo = true;
+      this.demoError = '';
+      try {
+        const response = await fetch('/api/v1/inbound/simulate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sender_name: 'James Anderson',
+            company_name: 'BHP',
+            sender_email: 'james.anderson@bhp.com',
+            message_content:
+              'We are exploring AI-powered drone automation solutions for our mining operations. ' +
+              'We want to improve site monitoring, reduce manual inspections, and increase operational ' +
+              'safety across mining locations. We are interested in understanding how autonomous drone ' +
+              'systems can help our teams.',
+          }),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          const detail = data.detail;
+          const message = Array.isArray(detail)
+            ? detail.map((item) => item.msg || JSON.stringify(item)).join('; ')
+            : (detail || 'Unable to run BHP demo.');
+          throw new Error(message);
+        }
+        window.location.assign('/inbound/analysis/' + data.task_id);
+      } catch (error) {
+        this.demoError = error.message || 'BHP demo failed.';
+        this.runningDemo = false;
+      }
     },
 
     async loadMessages() {
@@ -269,6 +320,7 @@ function inboundApp() {
               return {
                 task_id: t.task_id,
                 message_id: analysis.message_id,
+                company_name: analysis.message?.company_name || '',
                 from_name: analysis.message?.from_name || '',
                 from_email: analysis.message?.from_email || '',
                 subject: analysis.message?.subject || '',
