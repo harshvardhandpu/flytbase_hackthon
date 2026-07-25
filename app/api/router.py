@@ -87,6 +87,33 @@ def build_runtime(db: Session) -> AgentRuntime:
     return AgentRuntime(registry)
 
 
+def _is_simulated_placeholder_research(report: models.ResearchReport) -> bool:
+    """True when a cached report only has simulated example.com sources.
+
+    Those reports were produced without a working Tavily key. Reusing them
+    would permanently hide real search after TAVILY_API_KEY is configured.
+    """
+    findings = report.findings or {}
+    sources = findings.get("sources") or []
+    # Normalize list[str] and list[dict] shapes
+    urls: list[str] = []
+    for item in sources:
+        if isinstance(item, str):
+            urls.append(item)
+        elif isinstance(item, dict) and item.get("url"):
+            urls.append(str(item["url"]))
+    if not urls:
+        # Also check report.sources column
+        for item in report.sources or []:
+            if isinstance(item, dict) and item.get("url"):
+                urls.append(str(item["url"]))
+            elif isinstance(item, str):
+                urls.append(item)
+    if not urls:
+        return False
+    return all("example.com" in u for u in urls)
+
+
 # ── endpoints ───────────────────────────────────────────────────────────
 
 
@@ -1162,6 +1189,16 @@ async def simulate_inbound_email(
         .order_by(models.ResearchReport.created_at.desc())
         .first()
     )
+
+    # Discard cached research that only has simulated placeholder sources so
+    # Tavily can run after the API key is configured on Railway.
+    if report is not None and _is_simulated_placeholder_research(report):
+        logger.info(
+            "[SEARCH] discarding simulated placeholder research report_id=%s "
+            "so Tavily can re-run",
+            report.id,
+        )
+        report = None
 
     report_id: str | None = None
     if not report:

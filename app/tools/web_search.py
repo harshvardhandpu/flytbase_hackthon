@@ -2,10 +2,14 @@
 
 Uses the Tavily Search API when a key is configured; otherwise
 falls back to the existing simulated search for dev/test/demo.
+
+No third-party ``tavily`` package is required — requests go through ``httpx``.
 """
 
 from __future__ import annotations
 
+import logging
+import os
 from typing import Any
 
 import httpx
@@ -13,6 +17,8 @@ import httpx
 from app.config import get_settings
 from app.core.contracts import ToolResult
 from app.tools.base import BaseTool
+
+logger = logging.getLogger(__name__)
 
 _DEFAULT_RESULTS = [
     {
@@ -146,74 +152,180 @@ _MOCK_RESULTS: dict[str, list[dict[str, str]]] = {
 TAVILY_API_URL = "https://api.tavily.com/search"
 
 
+def _clean_api_key(value: str | None) -> str | None:
+    """Normalize a raw key string. Never log the value."""
+    if not value or not isinstance(value, str):
+        return None
+    cleaned = value.strip().strip('"').strip("'").strip()
+    return cleaned or None
+
+
+def resolve_tavily_api_key() -> str | None:
+    """Resolve TAVILY_API_KEY from the live process environment first.
+
+    Priority:
+      1. ``os.getenv("TAVILY_API_KEY")`` — what Railway injects at runtime
+      2. ``get_settings().tavily_api_key`` — pydantic-settings / ``.env`` fallback
+
+    Using ``os.getenv`` first avoids stale ``lru_cache`` Settings and ensures
+    production env vars win even if Settings init missed them.
+    """
+    env_key = _clean_api_key(os.getenv("TAVILY_API_KEY"))
+    if env_key:
+        return env_key
+
+    try:
+        settings_key = _clean_api_key(get_settings().tavily_api_key)
+    except Exception:  # noqa: BLE001 — never break search init
+        settings_key = None
+    return settings_key
+
+
 class WebSearchTool(BaseTool):
     """Web search via Tavily API, falling back to simulated results.
 
     Requires ``TAVILY_API_KEY`` environment variable for real API access.
     When the key is absent, returns deterministic mock results matching
     known company patterns.
+
+    Uses ``httpx`` (already a project dependency) — there is no separate
+    ``tavily`` Python package to install.
     """
 
     name = "web_search"
     description = "Search the web for company information, news, and industry signals."
 
     _simulated: bool
+    _api_key: str | None
 
     def __init__(self) -> None:
-        settings = get_settings()
-        self._api_key = settings.tavily_api_key
+        # Verify httpx import path is usable (Tavily client dependency)
+        try:
+            _ = httpx.AsyncClient
+            httpx_ok = True
+        except Exception:  # noqa: BLE001
+            httpx_ok = False
+
+        self._api_key = resolve_tavily_api_key()
         self._simulated = not bool(self._api_key)
+
+        logger.info(
+            "[TAVILY INIT] key_present=%s httpx_ok=%s client=httpx",
+            "true" if self._api_key else "false",
+            "true" if httpx_ok else "false",
+        )
+        if self._simulated:
+            logger.warning(
+                "[TAVILY INIT] missing TAVILY_API_KEY — web_search will use simulated fallback"
+            )
 
     async def execute(self, payload: dict[str, Any]) -> ToolResult:
         query: str = payload.get("query", "")
         max_results: int = payload.get("max_results", 5)
 
-        if self._simulated:
-            return self._simulated_search(query, max_results)
+        logger.info("[SEARCH] query=%s", query)
 
-        return await self._tavily_search(query, max_results)
+        if self._simulated or not self._api_key:
+            logger.info("[SEARCH] provider=fallback")
+            result = self._simulated_search(query, max_results)
+            logger.info(
+                "[SEARCH] results_count=%s",
+                result.content.get("result_count", 0),
+            )
+            return result
+
+        result = await self._tavily_search(query, max_results)
+        # If Tavily failed, _tavily_search returns simulated results
+        provider = "fallback" if result.content.get("simulated") else "tavily"
+        logger.info("[SEARCH] provider=%s", provider)
+        logger.info(
+            "[SEARCH] results_count=%s",
+            result.content.get("result_count", 0),
+        )
+        return result
 
     # ── Tavily API path ────────────────────────────────────────────────
 
     async def _tavily_search(self, query: str, max_results: int) -> ToolResult:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            try:
+        if not self._api_key:
+            logger.warning(
+                "[SEARCH] tavily_error status=None reason=missing_api_key"
+            )
+            return self._simulated_search(query, max_results)
+
+        # Prefer Bearer auth (current Tavily docs); also send api_key in body
+        # for older endpoint compatibility. Never log either value.
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self._api_key}",
+        }
+        body = {
+            "api_key": self._api_key,
+            "query": query,
+            # basic: 1 credit, wider free-tier compatibility than advanced
+            "search_depth": "basic",
+            "max_results": max_results,
+            "include_answer": False,
+            "include_raw_content": False,
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
                 resp = await client.post(
                     TAVILY_API_URL,
-                    json={
-                        "api_key": self._api_key,
-                        "query": query,
-                        "search_depth": "advanced",
-                        "max_results": max_results,
-                        "include_answer": False,
-                        "include_raw_content": False,
-                    },
+                    headers=headers,
+                    json=body,
                 )
-                resp.raise_for_status()
+                if resp.status_code >= 400:
+                    reason = (resp.reason_phrase or "http_error")[:120]
+                    logger.warning(
+                        "[SEARCH] tavily_error status=%s reason=%s",
+                        resp.status_code,
+                        reason,
+                    )
+                    return self._simulated_search(query, max_results)
+
                 data = resp.json()
-            except httpx.HTTPError:
-                # Fall back to simulated on API/network error
-                return self._simulated_search(query, max_results)
-
-            results = data.get("results", [])
-            formatted = [
-                {
-                    "title": r.get("title", ""),
-                    "url": r.get("url", ""),
-                    "snippet": r.get("content", ""),
-                }
-                for r in results[:max_results]
-            ]
-            sources = [r["url"] for r in formatted if r["url"]]
-
-            return ToolResult(
-                content={
-                    "query": query,
-                    "results": formatted,
-                    "result_count": len(formatted),
-                },
-                sources=sources,
+        except httpx.HTTPStatusError as exc:
+            reason = (exc.response.reason_phrase or "http_error")[:120]
+            logger.warning(
+                "[SEARCH] tavily_error status=%s reason=%s",
+                exc.response.status_code,
+                reason,
             )
+            return self._simulated_search(query, max_results)
+        except httpx.HTTPError as exc:
+            logger.warning(
+                "[SEARCH] tavily_error status=None reason=%s",
+                f"{type(exc).__name__}: {str(exc)[:160]}",
+            )
+            return self._simulated_search(query, max_results)
+        except Exception as exc:  # noqa: BLE001 — never break research pipeline
+            logger.warning(
+                "[SEARCH] tavily_error status=None reason=%s",
+                f"{type(exc).__name__}: {str(exc)[:160]}",
+            )
+            return self._simulated_search(query, max_results)
+
+        results = data.get("results", [])
+        formatted = [
+            {
+                "title": r.get("title", ""),
+                "url": r.get("url", ""),
+                "snippet": r.get("content", ""),
+            }
+            for r in results[:max_results]
+        ]
+        sources = [r["url"] for r in formatted if r["url"]]
+
+        return ToolResult(
+            content={
+                "query": query,
+                "results": formatted,
+                "result_count": len(formatted),
+            },
+            sources=sources,
+        )
 
     # ── Simulated fallback path ─────────────────────────────────────────
 
