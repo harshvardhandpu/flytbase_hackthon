@@ -1247,8 +1247,39 @@ async def simulate_inbound_email(
             report_id,
         )
 
-    # ── 5. Qualification with research context ────────────────────────
-    logger.info("[WORKFLOW] qualification started for lead=%s", lead.id)
+    # ── 5. Build research summary for response ────────────────────────
+    research_summary: dict[str, Any] = {
+        "signals_count": 0,
+        "sources": [],
+        "pain_points": [],
+        "buying_signals": [],
+        "evidence_count": 0,
+    }
+    if report:
+        rf = report.findings or {}
+        research_summary = {
+            "signals_count": len(rf.get("recent_signals", [])),
+            "sources": rf.get("sources", [])[:5],
+            "pain_points": [
+                p.get("pain_point", "") for p in rf.get("operational_pain_points", [])[:3]
+            ],
+            "buying_signals": [
+                s.get("signal", "") for s in rf.get("buying_signals", [])[:3]
+            ],
+            "evidence_count": len(rf.get("evidence", [])),
+            "report_id": report_id,
+        }
+
+    # ── 6. Qualification with research context ────────────────────────
+    has_research = bool(report and report.findings)
+    logger.info(
+        "[WORKFLOW] qualification received research=%s",
+        has_research,
+    )
+    logger.info(
+        "[WORKFLOW] qualification started for lead=%s research=%s",
+        lead.id, has_research,
+    )
     qualification = None
     try:
         qualification = await create_qualification_task(
@@ -1261,8 +1292,8 @@ async def simulate_inbound_email(
         )
         qual_score = qualification.get("score") if isinstance(qualification, dict) else None
         logger.info(
-            "[WORKFLOW] qualification completed lead=%s score=%s",
-            lead.id, qual_score,
+            "[WORKFLOW] qualification completed lead=%s score=%s research=%s",
+            lead.id, qual_score, has_research,
         )
     except Exception as exc:
         logger.warning(
@@ -1270,7 +1301,7 @@ async def simulate_inbound_email(
             lead.id, exc,
         )
 
-    # ── 6. Pipeline evaluation ────────────────────────────────────────
+    # ── 7. Pipeline evaluation ────────────────────────────────────────
     logger.info("[WORKFLOW] pipeline started for lead=%s", lead.id)
     pipeline = None
     try:
@@ -1285,11 +1316,12 @@ async def simulate_inbound_email(
             lead.id, exc,
         )
 
-    # ── 7. Return result (always include lead_id) ─────────────────────
+    # ── 8. Return result (always include lead_id) ─────────────────────
     logger.info(
-        "[WORKFLOW] completed lead=%s company=%s score=%s",
+        "[WORKFLOW] completed lead=%s company=%s score=%s signals=%s",
         lead.id, company.name,
         qualification.get("score") if isinstance(qualification, dict) else None,
+        research_summary["signals_count"],
     )
 
     return {
@@ -1299,6 +1331,7 @@ async def simulate_inbound_email(
         "lead_id": str(lead.id),
         "qualification": qualification,
         "pipeline": pipeline,
+        "research": research_summary,
         "company_domain": resolved_domain,
         "company_industry": company.industry or "",
     }

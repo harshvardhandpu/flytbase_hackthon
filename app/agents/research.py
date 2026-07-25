@@ -246,6 +246,7 @@ class ResearchAgent(BaseAgent):
             "location": findings.get("location"),
             "description": findings.get("description"),
             # Evidence-backed intelligence
+            "evidence": findings.get("evidence", []),
             "company_situation": findings.get("company_situation", ""),
             "operational_pain_points": findings.get("operational_pain_points", []),
             "buying_signals": findings.get("buying_signals", []),
@@ -348,28 +349,75 @@ class ResearchAgent(BaseAgent):
                 }
                 for s in collected_signals
             ]
+            # Derive pain points and buying signals from signal categories
+            derived_pain_points = [
+                {
+                    "pain_point": s.summary if len(s.summary) > 20 else s.title,
+                    "evidence": s.summary or s.title,
+                    "source_url": s.url,
+                }
+                for s in collected_signals
+                if s.url and s.category in (
+                    "safety_incident", "industry_article", "company_news",
+                )
+            ]
+            derived_buying_signals = [
+                {
+                    "signal": s.summary if len(s.summary) > 15 else s.title,
+                    "source_url": s.url,
+                }
+                for s in collected_signals
+                if s.url and s.category in (
+                    "expansion", "hiring", "funding", "technology",
+                    "technology_announcement", "tech_announcement", "partnership",
+                )
+            ]
+            derived_pain_list = list({s["pain_point"]: s for s in derived_pain_points}.values())
+            derived_buying_list = list({s["signal"]: s for s in derived_buying_signals}.values())
             return {
                 "company_name": company_name,
                 "domain": domain,
                 "description": f"Research completed for {company_name or domain}. "
                 "AI synthesis unavailable; evidence signals preserved.",
-                "company_situation": "",
-                "operational_pain_points": [],
-                "buying_signals": [],
-                "business_signals": [],
-                "pain_points": [],
-                "technology_signals": [],
-                "why_now": "",
-                "flytbase_relevance": "",
+                "company_situation": (
+                    f"{company_name or domain} is active in their industry based on "
+                    f"{len(collected_signals)} recent signals collected from public sources."
+                ),
+                "operational_pain_points": derived_pain_list,
+                "buying_signals": derived_buying_list,
+                "business_signals": [
+                    {
+                        "signal": s.summary or s.title,
+                        "category": s.category,
+                        "source_url": s.url,
+                        "summary": s.summary or "",
+                        "date": s.date,
+                    }
+                    for s in collected_signals
+                    if s.url
+                ],
+                "pain_points": [s.summary for s in collected_signals if s.summary][:5],
+                "technology_signals": [
+                    s.title for s in collected_signals
+                    if s.category in ("technology", "technology_announcement",
+                                     "tech_announcement")
+                ],
+                "why_now": (
+                    f"Recent signals indicate activity in automation, expansion, "
+                    f"or industry developments relevant to {company_name or domain}."
+                ),
+                "flytbase_relevance": "Research data collected but AI synthesis unavailable. "
+                "Review recent signals for relevance.",
                 "flytbase_fit": "",
-                "recommended_next_action": "",
-                "recommended_sales_angle": "",
-                "confidence_score": 0,
+                "recommended_next_action": "Review research signals and qualify based on evidence.",
+                "recommended_sales_angle": "Lead with operational intelligence based on recent "
+                "signals.",
+                "confidence_score": min(len(collected_signals) * 4, 60),
                 "recent_signals": signal_dicts,
                 "sources": [s.url for s in collected_signals if s.url],
                 "evidence": [
                     {
-                        "claim": s.summary,
+                        "claim": s.summary or s.title,
                         "source_url": s.url,
                     }
                     for s in collected_signals
