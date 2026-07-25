@@ -136,11 +136,12 @@ class TestResearchAgent:
         assert "report_id" in result.output_data
         assert not result.requires_human_approval
 
-        # Verify step logging (planning and intelligence events consolidated)
+        # Verify step logging (SignalCollector events instead of old planning)
         events = logged_event_types(tm)
         for expected in (
             "research_started",
-            "planning_completed",
+            "signal_collection_started",
+            "signal_collection_completed",
             "synthesis_started",
             "report_created",
             "task_completed",
@@ -191,7 +192,8 @@ class TestResearchAgent:
     async def test_tool_failures_logged_and_continued(
         self, task_context: AgentContext, task_input: AgentTaskInput
     ) -> None:
-        """If a tool fails, agent logs the error and continues with remaining tools."""
+        """If tools fail, SignalCollector returns empty results and agent
+        continues with a fallback report."""
         failing_tools = MagicMock()
         failing_tools.execute.side_effect = ValueError("Connection lost")
 
@@ -210,9 +212,16 @@ class TestResearchAgent:
         assert result.summary is not None
 
         events = logged_event_types(tm)
-        assert "tool_failed" in events, (
-            f"Expected 'tool_failed' in logged events, got: {events}"
-        )
+        # SignalCollector catches tool errors internally; extraction step
+        # has no sources to extract from, so the agent still completes.
+        for expected in (
+            "research_started",
+            "signal_collection_started",
+            "signal_collection_completed",
+            "synthesis_started",
+            "task_completed",
+        ):
+            assert expected in events, f"Missing log event: {expected}"
 
 
 # ── Real provider integration test ──────────────────────────────────────
@@ -322,7 +331,8 @@ class TestResearchAgentRealProvider:
         events = logged_event_types(tm)
         for expected in (
             "research_started",
-            "planning_completed",
+            "signal_collection_started",
+            "signal_collection_completed",
             "synthesis_started",
             "report_created",
             "task_completed",

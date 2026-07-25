@@ -23,25 +23,32 @@ from app.core.contracts import (
     ProviderError,
 )
 from app.core.task_manager import TaskManager
+from app.intelligence.signal_collector import ResearchSignal, SignalCollector
 from app.tools.tool_manager import ToolManager
 
 _EVIDENCE_SYNTHESIS_PROMPT = """\
-You are a senior BDR intelligence analyst. Synthesise the provided web search
-results into a structured, **evidence-backed** company intelligence report.
+You are a senior BDR intelligence analyst.  Below you will find a set of
+**collected evidence signals** — real search results and extracted web
+content for the target company.  Your job is to **analyse this evidence**
+and produce a structured, evidence-backed company intelligence report.
 
-RULES:
-1. Every claim MUST reference a source URL from the search results provided.
-2. Do NOT fabricate facts or sources. If evidence is insufficient, note it.
-3. Categorise signals into the evidence categories below.
+CRITICAL RULES:
+1. DO NOT fabricate facts, dates, or sources.  Use ONLY the evidence
+   provided in the "Collected Signals" and "Extracted Content" sections.
+2. Every claim in your output MUST reference a ``source_url`` that exists
+   in the evidence you were given.
+3. If the evidence for a particular field is insufficient, set it to
+   ``null`` or ``[]`` — do NOT invent data.
+4. Categorise signals using the categories present in the evidence.
 
-Return a JSON object with these EXACT keys:
+Return ONLY valid JSON matching this schema — no markdown, no commentary:
 {
   "company_name": "Full company name",
   "domain": "Primary domain",
   "industry": "Industry classification (e.g. Mining, Drone Services, SaaS)",
   "employee_count": integer or null,
   "location": "Headquarters location or null",
-  "description": "2-3 sentence company overview",
+  "description": "2-3 sentence company overview synthesised from evidence",
   "company_situation": "2-3 sentence summary of current business situation based on evidence",
   "operational_pain_points": [
     {
@@ -73,7 +80,16 @@ Return a JSON object with these EXACT keys:
   "recommended_next_action": "Recommended BDR next step",
   "recommended_sales_angle": "Specific sales angle for the BDR to lead with",
   "confidence_score": 0-100,
-  "sources": ["All source URLs used"],
+  "recent_signals": [
+    {
+      "title": "Signal title from collected evidence",
+      "url": "Source URL",
+      "date": "Date or null",
+      "summary": "Short summary of this signal",
+      "category": "company_news|press_release|industry_article|safety_incident|tech_announcement"
+    }
+  ],
+  "sources": ["All unique source URLs used"],
   "evidence": [
     {
       "claim": "Specific claim about the company",
@@ -82,21 +98,7 @@ Return a JSON object with these EXACT keys:
   ]
 }
 
-Use only information present in the search results. Do NOT fabricate data.
-Where data is unavailable, set to null or empty list rather than inventing."""
-
-# Targeted search queries for evidence categories
-_DEFAULT_SEARCH_QUERIES = [
-    "{query} company overview products services",
-    "{query} recent news press releases 2026",
-    "{query} expansion new offices locations",
-    "{query} hiring careers jobs 2026",
-    "{query} funding investment acquisition",
-    "{query} technology stack automation platforms",
-    "{query} partnerships collaborations",
-    "{query} industry challenges pain points",
-]
-
+Analyse the evidence below.  Do NOT invent anything."""
 
 class ResearchAgent(BaseAgent):
     """BDR research agent — evidence-backed company intelligence.
@@ -133,50 +135,32 @@ class ResearchAgent(BaseAgent):
             {"company_name": company_name, "domain": domain},
         )
 
-        query = company_name or domain
-
-        # ── Step 2: Generate category-targeted search queries ────────────
-        search_queries = [q.format(query=query) for q in _DEFAULT_SEARCH_QUERIES]
-
+        # ── Step 2: Collect structured evidence signals via SignalCollector ─
         self._tm.append_log(
-            task_id, "info", "planning_completed",
-            f"Using {len(search_queries)} category-targeted research queries",
-            {"queries": search_queries},
+            task_id, "info", "signal_collection_started",
+            f"Collecting category-targeted evidence signals for {company_name!r}",
+            {"company_name": company_name, "domain": domain},
         )
 
-        # ── Step 3: Execute web searches ───────────────────────────────
-        all_results: list[dict[str, Any]] = []
-        all_sources: list[str] = []
+        collector = SignalCollector(self._tools)
+        collected_signals = await collector.collect(
+            company_name=company_name,
+            domain=domain,
+            max_signals_per_category=3,
+        )
 
-        for q in search_queries:
-            self._tm.append_log(
-                task_id, "debug", "search_started",
-                f"Executing web_search for query={q!r}",
-                {"tool": "web_search", "query": q},
-            )
+        all_sources: list[str] = [s.url for s in collected_signals]
 
-            try:
-                result = await self._tools.execute("web_search", {"query": q, "max_results": 5})
-                page_results = result.content.get("results", [])
-                all_results.extend(page_results)
-                all_sources.extend(result.sources)
+        self._tm.append_log(
+            task_id, "info", "signal_collection_completed",
+            f"Collected {len(collected_signals)} signals from {len(all_sources)} sources",
+            {"signal_count": len(collected_signals), "source_count": len(all_sources)},
+        )
 
-                self._tm.append_log(
-                    task_id, "debug", "search_completed",
-                    f"web_search returned {len(page_results)} results for {q!r}",
-                    {"tool": "web_search", "query": q, "result_count": len(page_results)},
-                )
-            except ValueError as exc:
-                self._tm.append_log(
-                    task_id, "error", "tool_failed",
-                    f"web_search failed for {q!r}: {exc}",
-                    {"tool": "web_search", "query": q, "error": str(exc)},
-                )
-
-        # ── Step 4: Extract content from top URLs ──────────────────────
+        # ── Step 3: Extract content from signal source URLs ────────────
         self._tm.append_log(
             task_id, "info", "extraction_started",
-            f"Extracting content from {len(all_sources)} sources",
+            f"Extracting content from {len(all_sources)} signal sources",
             {"source_count": len(all_sources)},
         )
 
@@ -214,7 +198,7 @@ class ResearchAgent(BaseAgent):
                     {"tool": "extract_web_content", "url": source_url, "error": str(exc)},
                 )
 
-        # ── Step 5: Synthesise into evidence-backed report ──────────────
+        # ── Step 4: Synthesise into evidence-backed report ──────────────
         self._tm.append_log(
             task_id, "info", "synthesis_started",
             "Synthesising evidence-backed intelligence report via LLM",
@@ -223,7 +207,7 @@ class ResearchAgent(BaseAgent):
         findings = await self._synthesize_report(
             company_name=company_name,
             domain=domain,
-            search_results=all_results,
+            collected_signals=collected_signals,
             extracted_content=content_texts,
             task_id=task_id,
         )
@@ -231,7 +215,7 @@ class ResearchAgent(BaseAgent):
         evidence = findings.get("evidence", [])
         sources = findings.get("sources", all_sources)
 
-        # ── Step 6: Build report output ────────────────────────────────
+        # ── Step 7: Build report output ────────────────────────────────
         report_id = uuid.uuid4()
 
         self._tm.append_log(
@@ -261,6 +245,17 @@ class ResearchAgent(BaseAgent):
             "recommended_next_action": findings.get("recommended_next_action", ""),
             "recommended_sales_angle": findings.get("recommended_sales_angle", ""),
             "confidence_score": findings.get("confidence_score", 0),
+            # Structured evidence signals
+            "recent_signals": [
+                {
+                    "title": s.get("title", ""),
+                    "url": s.get("url", ""),
+                    "date": s.get("date"),
+                    "summary": s.get("summary", ""),
+                    "category": s.get("category", "company_news"),
+                }
+                for s in findings.get("recent_signals", [])
+            ],
             "sources": sources,
         }
 
@@ -269,8 +264,8 @@ class ResearchAgent(BaseAgent):
             "findings": report_data,
             "evidence": evidence,
             "intelligence_metadata": {
-                "analysis_version": "2.0",
-                "search_count": len(search_queries),
+                "analysis_version": "3.0",
+                "signal_count": len(collected_signals),
                 "source_count": len(all_sources),
                 "extraction_count": len(content_texts),
                 "evidence_count": len(evidence),
@@ -278,7 +273,7 @@ class ResearchAgent(BaseAgent):
             "providers_used": getattr(self._ai, "name", "unknown"),
         }
 
-        # ── Step 7: Complete ────────────────────────────────────────────
+        # ── Step 8: Complete ────────────────────────────────────────────
         self._tm.append_log(
             task_id, "info", "task_completed",
             f"Evidence-backed intelligence research completed for {company_name or domain}",
@@ -301,22 +296,29 @@ class ResearchAgent(BaseAgent):
         self,
         company_name: str,
         domain: str,
-        search_results: list[dict[str, Any]],
+        collected_signals: list[ResearchSignal],
         extracted_content: list[str],
         task_id: uuid.UUID,
     ) -> dict[str, Any]:
-        """Use DeepSeek to synthesise search data into a structured,
-        evidence-backed intelligence report."""
-        search_summary = json.dumps(search_results[:15], indent=2)
+        """Use DeepSeek to synthesise collected evidence signals into a
+        structured, evidence-backed intelligence report.
+
+        The ``collected_signals`` are the structured ``ResearchSignal``
+        objects from ``SignalCollector``.  They are rendered as formatted
+        text in the prompt along with extracted web content so DeepSeek
+        has both the structured signals and the full context.
+        """
         content_summary = "\n\n".join(extracted_content[:5])
+        signals_text = SignalCollector.format_signals_for_prompt(collected_signals)
 
         user_prompt = (
             f"Company: {company_name or 'Unknown'}\n"
             f"Domain: {domain or 'Unknown'}\n\n"
-            f"=== Search Results ===\n{search_summary}\n\n"
-            f"=== Extracted Content ===\n{content_summary}\n\n"
-            "Synthesise the above into a structured BDR intelligence report.\n"
-            "Every claim MUST reference a source URL from the data above.\n"
+            f"=== Collected Evidence Signals ===\n{signals_text}\n\n"
+            f"=== Extracted Web Content ===\n{content_summary}\n\n"
+            "Analyse the evidence above.  Synthesise it into a structured "
+            "BDR intelligence report.\n"
+            "Every claim MUST reference a source URL from the evidence above.\n"
             "Return ONLY valid JSON matching the specified schema."
         )
 
@@ -336,6 +338,7 @@ class ResearchAgent(BaseAgent):
             "recommended_next_action": "",
             "recommended_sales_angle": "",
             "confidence_score": 0,
+            "recent_signals": [],
             "sources": [],
             "evidence": [],
         }
