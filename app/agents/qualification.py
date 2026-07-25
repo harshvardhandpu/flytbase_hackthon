@@ -34,12 +34,13 @@ class IcpRules:
         return IcpRules(
             {
                 "industries": [
+                    "Mining", "Manufacturing", "Logistics", "Energy",
                     "Drone Technology", "SaaS", "Automation",
-                    "Enterprise Software",
+                    "Enterprise Software", "Healthcare",
                 ],
                 "min_employees": 10,
-                "max_employees": 500,
-                "locations": ["US", "EU", "IN"],
+                "max_employees": 5000,
+                "locations": ["US", "EU", "IN", "UK", "AU", "CA"],
             }
         )
 

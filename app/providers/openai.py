@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import logging
+import time
+
 import httpx
 
 from app.config import Settings, get_settings
 from app.core.contracts import AIRequest, AIResponse, ProviderError
 from app.providers.base import ConfiguredProvider
+
+logger = logging.getLogger(__name__)
 
 _OPENAI_DEFAULT_MODEL = "gpt-4o"
 _OPENAI_DEFAULT_BASE_URL = "https://api.openai.com"
@@ -25,14 +30,24 @@ class OpenAIProvider(ConfiguredProvider):
     async def generate(self, request: AIRequest) -> AIResponse:
         base_url = self._settings.openai_base_url or _OPENAI_DEFAULT_BASE_URL
         api_key = self._settings.openai_api_key
+
+        model = request.model or self._settings.openai_model or _OPENAI_DEFAULT_MODEL
+
+        # ── Debug: log AI request metadata ─────────────────────────────
+        logger.info(
+            "[AI REQUEST] provider=%s base_url=%s model=%s key_set=%s",
+            self.name,
+            base_url,
+            model,
+            bool(api_key),
+        )
+
         if not api_key:
             raise ProviderError(
                 provider=self.name,
                 status_code=None,
                 message="OPENAI_API_KEY is not configured",
             )
-
-        model = request.model or self._settings.openai_model or _OPENAI_DEFAULT_MODEL
 
         payload: dict = {
             "model": model,
@@ -46,6 +61,7 @@ class OpenAIProvider(ConfiguredProvider):
             "content-type": "application/json",
         }
 
+        start = time.monotonic()
         async with httpx.AsyncClient(timeout=60.0) as client:
             try:
                 response = await client.post(
@@ -54,14 +70,31 @@ class OpenAIProvider(ConfiguredProvider):
                     json=payload,
                 )
             except httpx.RequestError as exc:
+                latency = time.monotonic() - start
+                logger.error(
+                    "[AI RESPONSE] provider=%s success=false latency=%.2fs error=RequestError: %s",
+                    self.name,
+                    latency,
+                    exc,
+                )
                 raise ProviderError(
                     provider=self.name,
                     status_code=None,
                     message=f"Request failed: {exc}",
                 ) from exc
 
+        latency = time.monotonic() - start
+
         if response.status_code != 200:
             detail = _extract_openai_error(response)
+            logger.error(
+                "[AI RESPONSE] provider=%s success=false latency=%.2fs "
+                "status_code=%s error=%s",
+                self.name,
+                latency,
+                response.status_code,
+                detail,
+            )
             raise ProviderError(
                 provider=self.name,
                 status_code=response.status_code,
@@ -76,6 +109,16 @@ class OpenAIProvider(ConfiguredProvider):
             "completion_tokens": data.get("usage", {}).get("completion_tokens", 0),
             "total_tokens": data.get("usage", {}).get("total_tokens", 0),
         }
+
+        logger.info(
+            "[AI RESPONSE] provider=%s success=true latency=%.2fs "
+            "model=%s total_tokens=%s finish_reason=%s",
+            self.name,
+            latency,
+            data.get("model", model),
+            usage.get("total_tokens", "?"),
+            choice.get("finish_reason", "?"),
+        )
 
         return AIResponse(
             content=message.get("content", ""),

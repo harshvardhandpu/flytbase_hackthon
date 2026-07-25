@@ -109,7 +109,7 @@ class TestIcpRules:
         icp = IcpRules.default()
         assert len(icp.industries) > 0
         assert icp.min_employees == 10
-        assert icp.max_employees == 500
+        assert icp.max_employees == 5000
 
 
 # ── Deterministic scoring tests ────────────────────────────────────────

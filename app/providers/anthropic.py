@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import logging
+import time
+
 import httpx
 
 from app.config import Settings, get_settings
 from app.core.contracts import AIRequest, AIResponse, ProviderError
 from app.providers.base import ConfiguredProvider
+
+logger = logging.getLogger(__name__)
 
 _ANTHROPIC_DEFAULT_MODEL = "claude-3-5-sonnet-20241022"
 _ANTHROPIC_API_VERSION = "2023-06-01"
@@ -26,14 +31,24 @@ class AnthropicProvider(ConfiguredProvider):
     async def generate(self, request: AIRequest) -> AIResponse:
         base_url = self._settings.anthropic_base_url or "https://api.anthropic.com"
         auth_token = self._settings.anthropic_auth_token
+
+        model = request.model or self._settings.anthropic_model or _ANTHROPIC_DEFAULT_MODEL
+
+        # ── Debug: log AI request metadata ─────────────────────────────
+        logger.info(
+            "[AI REQUEST] provider=%s base_url=%s model=%s key_set=%s",
+            self.name,
+            base_url,
+            model,
+            bool(auth_token),
+        )
+
         if not auth_token:
             raise ProviderError(
                 provider=self.name,
                 status_code=None,
                 message="ANTHROPIC_AUTH_TOKEN is not configured",
             )
-
-        model = request.model or self._settings.anthropic_model or _ANTHROPIC_DEFAULT_MODEL
 
         build_message = _build_anthropic_messages(request)
         payload: dict = {
@@ -52,6 +67,7 @@ class AnthropicProvider(ConfiguredProvider):
             "content-type": "application/json",
         }
 
+        start = time.monotonic()
         async with httpx.AsyncClient(timeout=60.0) as client:
             try:
                 response = await client.post(
@@ -60,14 +76,31 @@ class AnthropicProvider(ConfiguredProvider):
                     json=payload,
                 )
             except httpx.RequestError as exc:
+                latency = time.monotonic() - start
+                logger.error(
+                    "[AI RESPONSE] provider=%s success=false latency=%.2fs error=RequestError: %s",
+                    self.name,
+                    latency,
+                    exc,
+                )
                 raise ProviderError(
                     provider=self.name,
                     status_code=None,
                     message=f"Request failed: {exc}",
                 ) from exc
 
+        latency = time.monotonic() - start
+
         if response.status_code != 200:
             detail = _extract_error_detail(response)
+            logger.error(
+                "[AI RESPONSE] provider=%s success=false latency=%.2fs "
+                "status_code=%s error=%s",
+                self.name,
+                latency,
+                response.status_code,
+                detail,
+            )
             raise ProviderError(
                 provider=self.name,
                 status_code=response.status_code,
@@ -80,6 +113,17 @@ class AnthropicProvider(ConfiguredProvider):
             "input_tokens": data.get("usage", {}).get("input_tokens", 0),
             "output_tokens": data.get("usage", {}).get("output_tokens", 0),
         }
+
+        logger.info(
+            "[AI RESPONSE] provider=%s success=true latency=%.2fs "
+            "model=%s input_tokens=%s output_tokens=%s stop_reason=%s",
+            self.name,
+            latency,
+            data.get("model", model),
+            usage.get("input_tokens", "?"),
+            usage.get("output_tokens", "?"),
+            data.get("stop_reason", "?"),
+        )
 
         return AIResponse(
             content=content,

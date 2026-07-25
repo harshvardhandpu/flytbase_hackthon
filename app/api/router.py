@@ -16,6 +16,7 @@ from app.core.contracts import AgentTaskInput
 from app.core.task_manager import TaskManager
 from app.db import models
 from app.db.session import SessionLocal
+from app.intelligence.company_resolver import CompanyResolver
 from app.providers.manager import ProviderManager
 from app.tools import ToolManager, WebContentExtractorTool, WebSearchTool
 
@@ -983,16 +984,36 @@ class InboundRejectResponse(BaseModel):
 
 
 def _find_or_create_simulation_lead(
-    db: Session, company_name: str, sender_name: str, sender_email: str
+    db: Session, company_name: str, sender_name: str, sender_email: str,
+    domain: str | None = None,
 ) -> tuple[models.Company, models.Contact, models.Lead]:
-    """Resolve the existing demo lead or create the minimum inbound records."""
+    """Resolve the existing demo lead or create the minimum inbound records.
+
+    If ``domain`` is provided (from CompanyResolver), it is set on the
+    Company record to enable downstream domain-based lookups by the
+    ResearchAgent.
+    """
     created = False
-    company = db.query(models.Company).filter(
-        models.Company.name.ilike(f"%{company_name}%")
-    ).first()
+    # Try to find by domain first (most reliable), then by email domain, then by name
+    company = None
+    if domain:
+        company = db.query(models.Company).filter(models.Company.domain == domain).first()
     if not company:
-        company = models.Company(name=company_name, profile_data={"source": "manual_inbound"})
+        company = db.query(models.Company).filter(
+            models.Company.name.ilike(f"%{company_name}%")
+        ).first()
+    if not company:
+        company = models.Company(
+            name=company_name,
+            domain=domain,
+            profile_data={"source": "manual_inbound"},
+        )
         db.add(company)
+        db.flush()
+        created = True
+    elif domain and not company.domain:
+        # Update existing company with resolved domain
+        company.domain = domain
         db.flush()
         created = True
 
@@ -1024,7 +1045,7 @@ def _find_or_create_simulation_lead(
 
         stage = db.query(models.PipelineStage).filter(models.PipelineStage.name == "new").first()
         if stage:
-            db.add(models.PipelineStatus(lead_id=lead.id, stage_id=stage.id, is_current=True))
+            db.add(models.PipelineStatus(lead_id=lead.id, stage=stage.name, is_current=True))
         created = True
 
     if created:
@@ -1051,7 +1072,17 @@ def _simulation_recommendation_text(
 async def simulate_inbound_email(
     body: ManualInboundSimulationRequest, db: Session = Depends(get_db)
 ) -> dict[str, Any]:
-    """Run a manually entered email through inbound, qualification, and pipeline agents."""
+    """Run a manually entered email through inbound, qualification, and pipeline agents.
+
+    Enrichment pipeline:
+    1. Extract email domain and resolve company intelligence
+    2. Create/find company, contact, and lead
+    3. Enrich company profile with resolver data
+    4. Process inbound message (intent/sentiment analysis)
+    5. Run research enrichment automatically (if no existing report)
+    6. Qualify the lead using research + email context
+    7. Evaluate pipeline position
+    """
     values = (
         body.sender_name.strip(),
         body.company_name.strip(),
@@ -1061,19 +1092,40 @@ async def simulate_inbound_email(
     if not all(values):
         raise HTTPException(status_code=422, detail="All simulation fields are required")
 
+    # ── 1. Resolve company intelligence from email domain ──────────────
+    resolver = CompanyResolver()
+    company_info = resolver.resolve(body.sender_email.strip())
+
+    resolved_domain = company_info["domain"]
+
+    # Use resolver's company name (from email domain) as a more accurate source;
+    # the user-provided company_name is kept for backward compatibility but the
+    # domain-based name is preferred for research enrichment.
+    effective_name = company_info["company_name"]
+
     company, contact, lead = _find_or_create_simulation_lead(
-        db, body.company_name.strip(), body.sender_name.strip(), body.sender_email.strip()
+        db,
+        effective_name,
+        body.sender_name.strip(),
+        body.sender_email.strip(),
+        domain=resolved_domain,
     )
 
-    # Reuse the latest research report when available so qualification stays grounded
-    # in existing demo intelligence (e.g. SkyGrid) rather than empty findings.
-    report = (
-        db.query(models.ResearchReport)
-        .filter(models.ResearchReport.company_id == company.id)
-        .order_by(models.ResearchReport.created_at.desc())
-        .first()
-    )
+    # ── 2. Enrich company profile with resolver data ───────────────────
+    if company_info.get("industry"):
+        company.industry = company_info["industry"]
+    if company_info.get("employees"):
+        company.employee_count = company_info["employees"]
+    profile = dict(company.profile_data or {})
+    profile.update({
+        "location": company_info.get("location") or profile.get("location", ""),
+        "source": company_info.get("source", "manual_inbound"),
+        "company_name": company.name,
+    })
+    company.profile_data = profile
+    db.flush()
 
+    # ── 3. Process inbound message ────────────────────────────────────
     inbound = await process_inbound_message(
         InboundRequest(
             from_email=body.sender_email.strip(),
@@ -1086,6 +1138,36 @@ async def simulate_inbound_email(
         ),
         db,
     )
+
+    # ── 4. Run research enrichment (if no existing report) ────────────
+    report = (
+        db.query(models.ResearchReport)
+        .filter(models.ResearchReport.company_id == company.id)
+        .order_by(models.ResearchReport.created_at.desc())
+        .first()
+    )
+
+    if not report:
+        # Automatically research the company for richer qualification
+        try:
+            await create_research_task(
+                ResearchRequest(
+                    company_name=effective_name,
+                    domain=resolved_domain,
+                ),
+                db,
+            )
+            # Fetch the newly created report
+            report = (
+                db.query(models.ResearchReport)
+                .filter(models.ResearchReport.company_id == company.id)
+                .order_by(models.ResearchReport.created_at.desc())
+                .first()
+            )
+        except Exception:
+            pass  # Research enrichment is non-blocking
+
+    # ── 5. Qualification with research context ────────────────────────
     qualification = await create_qualification_task(
         QualifyRequest(
             company_name=company.name,
@@ -1094,7 +1176,10 @@ async def simulate_inbound_email(
         ),
         db,
     )
+
+    # ── 6. Pipeline evaluation ────────────────────────────────────────
     pipeline = await evaluate_pipeline(PipelineEvaluateRequest(lead_id=str(lead.id)), db)
+
     return {
         "task_id": inbound["task_id"],
         "company": company.name,
@@ -1102,6 +1187,8 @@ async def simulate_inbound_email(
         "lead_id": str(lead.id),
         "qualification": qualification,
         "pipeline": pipeline,
+        "company_domain": resolved_domain,
+        "company_industry": company.industry or "",
     }
 
 
