@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, patch
+
 from fastapi.testclient import TestClient
 
+from app.api.router import _simulation_recommendation_text
 from app.main import app
 
 client = TestClient(app)
@@ -21,6 +24,135 @@ def test_inbound_missing_body():
     assert response.status_code == 422
     detail = response.json().get("detail", "")
     assert "body" in detail.lower() or "field required" in detail.lower()
+
+
+def test_manual_inbound_simulation_request_requires_all_fields():
+    response = client.post("/api/v1/inbound/simulate", json={})
+
+    assert response.status_code == 422
+
+
+def test_manual_inbound_simulation_rejects_blank_fields():
+    """Whitespace-only values should fail validation after strip."""
+    response = client.post(
+        "/api/v1/inbound/simulate",
+        json={
+            "sender_name": "  ",
+            "company_name": "SkyGrid",
+            "sender_email": "sarah@skygrid.io",
+            "message_content": "Interested in a demo",
+        },
+    )
+
+    assert response.status_code == 422
+    assert "required" in response.json()["detail"].lower()
+
+
+def test_manual_inbound_simulation_get_invalid_task_id():
+    response = client.get("/api/v1/inbound/not-a-uuid/simulation")
+
+    assert response.status_code == 422
+
+
+def test_manual_inbound_simulation_get_not_found():
+    response = client.get(
+        "/api/v1/inbound/00000000-0000-0000-0000-000000000000/simulation"
+    )
+
+    assert response.status_code == 404
+
+
+def test_simulation_recommendation_prefers_action_text():
+    text = _simulation_recommendation_text(
+        {
+            "type": "follow_up",
+            "action": "Schedule a discovery call this week.",
+            "description": None,
+        },
+        follow_up_suggestion="fallback",
+    )
+
+    assert text == "Schedule a discovery call this week."
+
+
+def test_manual_inbound_simulation_orchestrates_agents():
+    """Simulate endpoint should link lead data and call inbound → qualify → pipeline."""
+    inbound_result = {
+        "task_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+        "message_id": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+        "status": "pending_review",
+        "intent": "meeting_request",
+        "sentiment": "positive",
+        "urgency": "high",
+        "lead_action": "update_lead",
+        "requires_human_approval": True,
+        "suggested_reply_preview": "Thanks for reaching out",
+    }
+    qualify_result = {
+        "task_id": "cccccccc-cccc-cccc-cccc-cccccccccccc",
+        "status": "completed",
+        "score": 91,
+        "priority": "HOT",
+        "qualification_id": "dddddddd-dddd-dddd-dddd-dddddddddddd",
+    }
+    pipeline_result = {
+        "task_id": "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",
+        "lead_id": "ffffffff-ffff-ffff-ffff-ffffffffffff",
+        "status": "completed",
+        "current_stage": "meeting_scheduled",
+        "stage_health": "healthy",
+        "stagnation_risk": "low",
+        "recommended_action": {
+            "type": "follow_up",
+            "action": "Confirm the meeting time with Sarah.",
+        },
+    }
+
+    with (
+        patch(
+            "app.api.router.process_inbound_message",
+            new=AsyncMock(return_value=inbound_result),
+        ) as inbound_mock,
+        patch(
+            "app.api.router.create_qualification_task",
+            new=AsyncMock(return_value=qualify_result),
+        ) as qualify_mock,
+        patch(
+            "app.api.router.evaluate_pipeline",
+            new=AsyncMock(return_value=pipeline_result),
+        ) as pipeline_mock,
+    ):
+        response = client.post(
+            "/api/v1/inbound/simulate",
+            json={
+                "sender_name": "Sarah Chen",
+                "company_name": "SkyGrid",
+                "sender_email": "sarah@skygrid.io",
+                "message_content": "Can we schedule a product discussion next week?",
+            },
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["task_id"] == inbound_result["task_id"]
+    assert "SkyGrid" in data["company"]
+    assert data["contact"] == "Sarah Chen"
+    assert data["lead_id"]
+    assert data["qualification"]["priority"] == "HOT"
+    assert data["pipeline"]["status"] == "completed"
+    assert inbound_mock.await_count == 1
+    assert qualify_mock.await_count == 1
+    assert pipeline_mock.await_count == 1
+
+    inbound_request = inbound_mock.await_args.args[0]
+    assert inbound_request.from_email == "sarah@skygrid.io"
+    assert inbound_request.lead_id == data["lead_id"]
+    assert "schedule" in inbound_request.body.lower()
+
+    qualify_request = qualify_mock.await_args.args[0]
+    assert qualify_request.lead_id == data["lead_id"]
+    # Seeded SkyGrid should pass an existing research report id when present.
+    assert qualify_request.company_name
 
 
 def test_inbound_invalid_message_id():

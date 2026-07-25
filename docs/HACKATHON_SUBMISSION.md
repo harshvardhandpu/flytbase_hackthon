@@ -121,6 +121,8 @@ This creates a debuggable, inspectable timeline for every prospect journey.
 #### 6. Demo-Ready Workflow
 One command seeds 5 complete companies with full lifecycle data (research reports, qualification scores, outreach drafts, inbound messages, pipeline status, agent logs) — and a 3-minute judge walkthrough guides the entire demo.
 
+Manual inbound simulation enables BDR teams to test lead qualification workflows without external email integrations. A BDR can enter an email at `/inbound/new` (or use **Fill SkyGrid demo**), run Inbound → Qualification → Pipeline agents, and review the analysis at `/inbound/analysis/{task_id}`.
+
 ---
 
 ## Technical Architecture

@@ -55,6 +55,8 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 The demo seeds 5 companies with complete lifecycle data (SkyGrid Inc., AeroVista, DroneFleet Logistics, AirMap Technologies, PrecisionAg Drones) and provides a 3-minute judge walkthrough from landing page through all 7 Mission Control views.
 
+Manual inbound simulation at `/inbound/new` enables BDR teams to test lead qualification workflows without external email integrations. Submit a message to run Inbound → Qualification → Pipeline agents and open the analysis page at `/inbound/analysis/{task_id}`. Matching seeded accounts such as SkyGrid reuses existing demo intelligence.
+
 ---
 
 ## Architecture

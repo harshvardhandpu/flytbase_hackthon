@@ -30,6 +30,16 @@
 
   <template x-if="!loading">
     <div class="space-y-6">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 class="text-base font-semibold text-slate-200">Inbox activity</h2>
+          <p class="mt-1 text-sm text-slate-400">Review inbound signals and suggested next steps.</p>
+        </div>
+        <a href="/inbound/new" class="inline-flex items-center justify-center rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-4 py-2.5 text-sm font-medium text-cyan-300 transition-colors hover:bg-cyan-500/20">
+          New Inbound Email
+        </a>
+      </div>
+
       <!-- Stats bar -->
       <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div class="bg-slate-800 rounded-xl p-4 border border-slate-700/50">
@@ -51,6 +61,10 @@
         <div class="bg-slate-800 rounded-xl border border-slate-700/50 p-12 text-center">
           <span class="text-4xl block mb-3">📨</span>
           <p class="text-slate-500 text-sm">No inbound messages yet. Messages will appear here when leads reply or reach out.</p>
+          <a href="/inbound/new"
+             class="mt-4 inline-flex items-center justify-center rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-4 py-2 text-sm font-medium text-cyan-300 transition-colors hover:bg-cyan-500/20">
+            Simulate an incoming email
+          </a>
         </div>
       </template>
 

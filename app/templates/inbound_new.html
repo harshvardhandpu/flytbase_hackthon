@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+
+{% block title %}New Inbound Email | ScoutOS{% endblock %}
+{% block heading %}Simulate Incoming Email{% endblock %}
+
+{% block content %}
+<div x-data="inboundSimulation()" class="mx-auto max-w-3xl">
+  <div class="mb-6">
+    <a href="/inbound" class="text-sm text-cyan-400 hover:text-cyan-300">← Back to inbound messages</a>
+    <p class="mt-3 text-sm text-slate-400">
+      Test the inbound, qualification, and pipeline workflow without connecting an external mailbox.
+      Matching a known demo account (for example <span class="text-slate-300">SkyGrid</span>) reuses existing lead intelligence.
+    </p>
+  </div>
+
+  <form @submit.prevent="submit" class="space-y-5 rounded-xl border border-slate-700/60 bg-slate-800 p-6 shadow-lg shadow-slate-950/20">
+    <div class="grid grid-cols-1 gap-5 sm:grid-cols-2">
+      <label class="block text-sm font-medium text-slate-200">Sender Name
+        <input x-model="senderName" required
+               class="mt-2 w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2.5 text-slate-100 placeholder:text-slate-500 focus:border-cyan-400 focus:outline-none"
+               placeholder="Sarah Chen">
+      </label>
+      <label class="block text-sm font-medium text-slate-200">Company Name
+        <input x-model="companyName" required
+               class="mt-2 w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2.5 text-slate-100 placeholder:text-slate-500 focus:border-cyan-400 focus:outline-none"
+               placeholder="SkyGrid">
+      </label>
+    </div>
+    <label class="block text-sm font-medium text-slate-200">Sender Email
+      <input x-model="senderEmail" type="email" required
+             class="mt-2 w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2.5 text-slate-100 placeholder:text-slate-500 focus:border-cyan-400 focus:outline-none"
+             placeholder="sarah@skygrid.io">
+    </label>
+    <label class="block text-sm font-medium text-slate-200">Message Content
+      <textarea x-model="messageContent" required rows="7"
+                class="mt-2 w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2.5 text-slate-100 placeholder:text-slate-500 focus:border-cyan-400 focus:outline-none"
+                placeholder="We are evaluating drone fleet automation solutions.&#10;Can we schedule a product discussion next week?"></textarea>
+    </label>
+
+    <div class="rounded-lg border border-slate-700/50 bg-slate-900/50 p-3 text-xs text-slate-400">
+      Flow: create/link contact &amp; lead → Inbound Agent analysis → Qualification → Pipeline recommendation.
+    </div>
+
+    <p x-show="error" x-text="error" class="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300"></p>
+
+    <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
+      <button type="submit" :disabled="submitting"
+              class="rounded-lg bg-cyan-500 px-5 py-2.5 text-sm font-semibold text-slate-950 transition-colors hover:bg-cyan-400 disabled:cursor-wait disabled:opacity-60"
+              x-text="submitting ? 'Analyzing inbound email…' : 'Analyze Incoming Email'"></button>
+      <button type="button" @click="fillSkyGridDemo()" :disabled="submitting"
+              class="rounded-lg border border-slate-600 px-4 py-2.5 text-sm font-medium text-slate-300 hover:bg-slate-700/50 disabled:opacity-60">
+        Fill SkyGrid demo
+      </button>
+      <span x-show="submitting" class="text-sm text-slate-400">
+        Creating the contact, lead, qualification, and pipeline analysis.
+      </span>
+    </div>
+  </form>
+</div>
+
+<script>
+function inboundSimulation() {
+  return {
+    senderName: '',
+    companyName: '',
+    senderEmail: '',
+    messageContent: '',
+    submitting: false,
+    error: '',
+    fillSkyGridDemo() {
+      this.senderName = 'Sarah Chen';
+      this.companyName = 'SkyGrid';
+      this.senderEmail = 'sarah@skygrid.io';
+      this.messageContent =
+        "Hi Jane,\n\nThanks for reaching out. We're definitely interested in exploring ways to streamline our fleet operations. The EU expansion is creating some new challenges around remote management.\n\nWould love to schedule a demo. How does next Tuesday at 2pm PT work?\n\nBest,\nSarah Chen\nHead of Operations, SkyGrid Inc.";
+      this.error = '';
+    },
+    async submit() {
+      this.submitting = true;
+      this.error = '';
+      try {
+        const response = await fetch('/api/v1/inbound/simulate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sender_name: this.senderName,
+            company_name: this.companyName,
+            sender_email: this.senderEmail,
+            message_content: this.messageContent,
+          }),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          const detail = data.detail;
+          const message = Array.isArray(detail)
+            ? detail.map((item) => item.msg || JSON.stringify(item)).join('; ')
+            : (detail || 'Unable to analyze this email.');
+          throw new Error(message);
+        }
+        window.location.assign('/inbound/analysis/' + data.task_id);
+      } catch (error) {
+        this.error = error.message;
+        this.submitting = false;
+      }
+    },
+  };
+}
+</script>
+{% endblock %}

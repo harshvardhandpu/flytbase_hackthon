@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+
+{% block title %}Lead Analysis | ScoutOS{% endblock %}
+{% block heading %}Lead Analysis{% endblock %}
+
+{% block content %}
+<div x-data="inboundAnalysis()" x-init="load()" class="mx-auto max-w-3xl">
+  <div x-show="loading" class="rounded-xl border border-slate-700 bg-slate-800 p-8 text-slate-400">
+    Loading agent analysis…
+  </div>
+
+  <div x-show="error" x-text="error" class="rounded-xl border border-red-500/30 bg-red-500/10 p-5 text-red-300"></div>
+
+  <template x-if="result && !loading">
+    <section class="space-y-6">
+      <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <a href="/inbound/new" class="text-sm text-cyan-400 hover:text-cyan-300">← Simulate another email</a>
+          <h2 class="mt-3 text-2xl font-semibold text-slate-100">Lead Analysis</h2>
+          <p class="mt-1 text-slate-400">
+            Inbound signal processed through qualification and pipeline intelligence.
+          </p>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <a href="/inbound"
+             class="rounded-lg border border-slate-600 px-4 py-2 text-sm font-medium text-slate-200 hover:bg-slate-800">
+            Inbound queue
+          </a>
+          <a :href="'/leads/' + result.lead_id"
+             x-show="result.lead_id"
+             class="rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-4 py-2 text-sm font-medium text-cyan-300 hover:bg-cyan-500/20">
+            View lead
+          </a>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div class="rounded-xl border border-slate-700/60 bg-slate-800 p-5">
+          <span class="text-xs font-medium uppercase tracking-wide text-slate-500">Company</span>
+          <p class="mt-2 text-lg font-semibold text-slate-100" x-text="result.company"></p>
+        </div>
+        <div class="rounded-xl border border-slate-700/60 bg-slate-800 p-5">
+          <span class="text-xs font-medium uppercase tracking-wide text-slate-500">Contact</span>
+          <p class="mt-2 text-lg font-semibold text-slate-100" x-text="result.contact"></p>
+        </div>
+        <div class="rounded-xl border border-slate-700/60 bg-slate-800 p-5">
+          <span class="text-xs font-medium uppercase tracking-wide text-slate-500">Intent detected</span>
+          <p class="mt-2 text-lg font-semibold capitalize text-cyan-300"
+             x-text="formatLabel(result.intent)"></p>
+          <p class="mt-1 text-xs text-slate-400">
+            <span x-show="result.sentiment" x-text="'Sentiment: ' + formatLabel(result.sentiment)"></span>
+            <span x-show="result.urgency" class="ml-2" x-text="'Urgency: ' + formatLabel(result.urgency)"></span>
+          </p>
+        </div>
+        <div class="rounded-xl border border-slate-700/60 bg-slate-800 p-5">
+          <span class="text-xs font-medium uppercase tracking-wide text-slate-500">Qualification</span>
+          <p class="mt-2 text-lg font-semibold text-slate-100">
+            <span x-text="result.score ?? 'Pending'"></span>
+            <span x-show="result.score !== null && result.score !== undefined">/100</span>
+            <span class="ml-2 text-sm font-medium"
+                  :class="{
+                    'text-red-400': result.priority === 'HOT',
+                    'text-amber-400': result.priority === 'WARM',
+                    'text-slate-400': result.priority === 'COLD' || !result.priority
+                  }"
+                  x-text="result.priority || ''"></span>
+          </p>
+          <p x-show="result.pipeline_stage" class="mt-1 text-xs text-slate-400">
+            Pipeline stage:
+            <span class="capitalize text-slate-300" x-text="formatLabel(result.pipeline_stage)"></span>
+          </p>
+        </div>
+      </div>
+
+      <div class="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-5">
+        <span class="text-xs font-medium uppercase tracking-wide text-cyan-300">Recommended next action</span>
+        <p class="mt-2 text-slate-200" x-text="result.recommendation"></p>
+      </div>
+
+      <p class="text-xs text-slate-500">
+        Agents used: Inbound → Qualification → Pipeline. Existing SkyGrid demo records are reused when the company matches.
+      </p>
+    </section>
+  </template>
+</div>
+
+<script>
+function inboundAnalysis() {
+  return {
+    loading: true,
+    error: '',
+    result: null,
+    formatLabel(value) {
+      if (!value) return '';
+      return String(value).replaceAll('_', ' ');
+    },
+    async load() {
+      try {
+        const response = await fetch('/api/v1/inbound/{{ task_id }}/simulation');
+        const data = await response.json();
+        if (!response.ok) {
+          const detail = data.detail;
+          const message = Array.isArray(detail)
+            ? detail.map((item) => item.msg || JSON.stringify(item)).join('; ')
+            : (detail || 'Unable to load the analysis.');
+          throw new Error(message);
+        }
+        this.result = data;
+      } catch (error) {
+        this.error = error.message;
+      } finally {
+        this.loading = false;
+      }
+    },
+  };
+}
+</script>
+{% endblock %}

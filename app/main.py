@@ -102,6 +102,26 @@ async def inbound_view(request: Request):
     )
 
 
+@app.get("/inbound/new", tags=["frontend"])
+async def new_inbound_email(request: Request):
+    """Manual inbound email simulation form for the demo workflow."""
+    return templates.TemplateResponse(
+        request,
+        "inbound_new.html",
+        {"active_nav": "inbound", "env": settings.app_env},
+    )
+
+
+@app.get("/inbound/analysis/{task_id}", tags=["frontend"])
+async def inbound_analysis_view(request: Request, task_id: str):
+    """Show the orchestration result for a simulated inbound email."""
+    return templates.TemplateResponse(
+        request,
+        "inbound_analysis.html",
+        {"active_nav": "inbound", "task_id": task_id, "env": settings.app_env},
+    )
+
+
 @app.get("/activity", tags=["frontend"])
 async def activity_view(request: Request):
     """Agent activity / task log view."""

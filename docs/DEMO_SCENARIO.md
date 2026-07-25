@@ -49,8 +49,10 @@ ScoutOS demonstrates how five AI agents work together to:
 | 1:35 | | **Intent detection**: `meeting_request` with 0.92 confidence |
 | 1:40 | | **Sentiment**: positive, **Urgency**: high |
 | 1:45 | | Suggested reply ready for human review |
+| 1:50 | Optional: **New Inbound Email** → `/inbound/new` | Manual simulation form (no mailbox required) |
+| 1:55 | | Submit → analysis page shows intent, score, recommended action |
 
-**Key talking point:** "The human approval boundary ensures no message is ever auto-sent. Every draft requires a BDR to review, edit if needed, and explicitly approve."
+**Key talking point:** "The human approval boundary ensures no message is ever auto-sent. Every draft requires a BDR to review, edit if needed, and explicitly approve. Judges can also simulate a fresh inbound email at `/inbound/new` without external email integrations."
 
 ### Minute 3: Pipeline → Activity → Architecture
 

@@ -15,6 +15,17 @@ uvicorn app.main:app --reload
 
 Check `GET /health`. Run `pytest` and `ruff check .` before handing off changes.
 
+## Manual inbound simulation
+
+For local demos without a mailbox:
+
+1. Seed demo data: `python scripts/seed_demo_data.py` (or use `/demo`).
+2. Open `/inbound/new` (or click **New Inbound Email** on `/inbound`).
+3. Optionally click **Fill SkyGrid demo**, then **Analyze Incoming Email**.
+4. The app creates/links contact+lead records, runs Inbound → Qualification → Pipeline agents, and redirects to `/inbound/analysis/{task_id}`.
+
+API endpoints: `POST /api/v1/inbound/simulate`, `GET /api/v1/inbound/{task_id}/simulation`.
+
 ## Coding rules
 
 - Keep HTTP handlers thin; place use cases in `application/` when they appear.

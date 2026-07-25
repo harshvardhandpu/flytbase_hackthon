@@ -56,7 +56,15 @@ Implement inbound message processing (intent classification, reply generation, h
 
 ## Phase 6 — demo polish ✅
 
+Manual inbound simulation enables BDR teams to test lead qualification workflows without external email integrations. The `/inbound/new` form runs a submitted message through the existing inbound, qualification, and pipeline workflow without adding a new model or external mailbox dependency.
+
 **Delivered:** Mission Control dashboard — single-page, dark-theme, Jinja2 + Alpine.js frontend with 7 views covering all 5 agent phases. Comprehensive seed script (`scripts/seed_demo_data.py`) with 5 demo companies, full lifecycle data, and 102 passing tests.
+
+**Manual inbound simulation (post Phase 6 polish):**
+- UI: `/inbound/new` form + `/inbound/analysis/{task_id}` result page
+- API: `POST /api/v1/inbound/simulate`, `GET /api/v1/inbound/{task_id}/simulation`
+- Reuses existing Company/Contact/Lead models and Inbound → Qualification → Pipeline agents
+- Matching `SkyGrid` (or other seeded accounts) reuses demo research/intelligence
 
 ### Views
 - **Dashboard** — stats bar, pipeline snapshot, activity feed
@@ -64,7 +72,7 @@ Implement inbound message processing (intent classification, reply generation, h
 - **Lead Detail** — 4-card layout (Company Profile, Qualification, Outreach, Pipeline)
 - **Outreach Drafts** — queue with approve/reject modal
 - **Pipeline Kanban** — 8 horizontal-scrollable stage columns with advance actions
-- **Inbound Messages** — expandable analysis cards with approve/reject
+- **Inbound Messages** — expandable analysis cards with approve/reject + **New Inbound Email** simulation entry point
 - **Activity Log** — agent type filter, status filter, step-level timeline logs
 
 **Plan:** See [PHASE_6_DEMO_POLISH_PLAN.md](PHASE_6_DEMO_POLISH_PLAN.md)

@@ -929,6 +929,13 @@ class InboundRequest(BaseModel):
     company_id: str | None = None
 
 
+class ManualInboundSimulationRequest(BaseModel):
+    sender_name: str
+    company_name: str
+    sender_email: str
+    message_content: str
+
+
 class InboundResponse(BaseModel):
     task_id: str
     message_id: str | None = None
@@ -975,6 +982,177 @@ class InboundRejectResponse(BaseModel):
     status: str
 
 
+def _find_or_create_simulation_lead(
+    db: Session, company_name: str, sender_name: str, sender_email: str
+) -> tuple[models.Company, models.Contact, models.Lead]:
+    """Resolve the existing demo lead or create the minimum inbound records."""
+    created = False
+    company = db.query(models.Company).filter(
+        models.Company.name.ilike(f"%{company_name}%")
+    ).first()
+    if not company:
+        company = models.Company(name=company_name, profile_data={"source": "manual_inbound"})
+        db.add(company)
+        db.flush()
+        created = True
+
+    contact = db.query(models.Contact).filter(models.Contact.email == sender_email).first()
+    if not contact:
+        first_name, *remaining_names = sender_name.strip().split(maxsplit=1)
+        contact = models.Contact(
+            company_id=company.id,
+            first_name=first_name or None,
+            last_name=remaining_names[0] if remaining_names else None,
+            email=sender_email,
+        )
+        db.add(contact)
+        db.flush()
+        created = True
+
+    lead = db.query(models.Lead).filter(
+        models.Lead.company_id == company.id, models.Lead.contact_id == contact.id
+    ).first()
+    if not lead:
+        lead = models.Lead(
+            company_id=company.id,
+            contact_id=contact.id,
+            status="new",
+            source="manual_inbound",
+        )
+        db.add(lead)
+        db.flush()
+
+        stage = db.query(models.PipelineStage).filter(models.PipelineStage.name == "new").first()
+        if stage:
+            db.add(models.PipelineStatus(lead_id=lead.id, stage_id=stage.id, is_current=True))
+        created = True
+
+    if created:
+        db.commit()
+    return company, contact, lead
+
+
+def _simulation_recommendation_text(
+    recommended_action: dict[str, Any] | None,
+    follow_up_suggestion: str | None,
+) -> str:
+    """Prefer human-readable pipeline action text over raw action type labels."""
+    action = recommended_action or {}
+    return (
+        action.get("action")
+        or action.get("description")
+        or action.get("reasoning")
+        or follow_up_suggestion
+        or "Review the inbound message and schedule a discovery call."
+    )
+
+
+@router.post("/inbound/simulate")
+async def simulate_inbound_email(
+    body: ManualInboundSimulationRequest, db: Session = Depends(get_db)
+) -> dict[str, Any]:
+    """Run a manually entered email through inbound, qualification, and pipeline agents."""
+    values = (
+        body.sender_name.strip(),
+        body.company_name.strip(),
+        body.sender_email.strip(),
+        body.message_content.strip(),
+    )
+    if not all(values):
+        raise HTTPException(status_code=422, detail="All simulation fields are required")
+
+    company, contact, lead = _find_or_create_simulation_lead(
+        db, body.company_name.strip(), body.sender_name.strip(), body.sender_email.strip()
+    )
+
+    # Reuse the latest research report when available so qualification stays grounded
+    # in existing demo intelligence (e.g. SkyGrid) rather than empty findings.
+    report = (
+        db.query(models.ResearchReport)
+        .filter(models.ResearchReport.company_id == company.id)
+        .order_by(models.ResearchReport.created_at.desc())
+        .first()
+    )
+
+    inbound = await process_inbound_message(
+        InboundRequest(
+            from_email=body.sender_email.strip(),
+            from_name=body.sender_name.strip(),
+            subject=f"Product discussion with {company.name}",
+            body=body.message_content.strip(),
+            lead_id=str(lead.id),
+            contact_id=str(contact.id),
+            company_id=str(company.id),
+        ),
+        db,
+    )
+    qualification = await create_qualification_task(
+        QualifyRequest(
+            company_name=company.name,
+            lead_id=str(lead.id),
+            report_id=str(report.id) if report else None,
+        ),
+        db,
+    )
+    pipeline = await evaluate_pipeline(PipelineEvaluateRequest(lead_id=str(lead.id)), db)
+    return {
+        "task_id": inbound["task_id"],
+        "company": company.name,
+        "contact": body.sender_name.strip(),
+        "lead_id": str(lead.id),
+        "qualification": qualification,
+        "pipeline": pipeline,
+    }
+
+
+@router.get("/inbound/{task_id}/simulation")
+async def get_inbound_simulation(task_id: str, db: Session = Depends(get_db)) -> dict[str, Any]:
+    """Return a compact cross-agent result for the inbound simulation page."""
+    try:
+        task_uid = uuid.UUID(task_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid task_id format")
+    message = db.query(models.InboundMessage).filter(
+        models.InboundMessage.task_id == task_uid
+    ).first()
+    if not message or not message.lead_id:
+        raise HTTPException(status_code=404, detail="Simulated inbound message not found")
+    lead = db.query(models.Lead).filter(models.Lead.id == message.lead_id).first()
+    company = db.query(models.Company).filter(models.Company.id == message.company_id).first()
+    contact = db.query(models.Contact).filter(models.Contact.id == message.contact_id).first()
+    qualification = db.query(models.QualificationResult).filter(
+        models.QualificationResult.lead_id == message.lead_id
+    ).order_by(models.QualificationResult.created_at.desc()).first()
+    pipeline_task = db.query(models.AgentTask).filter(
+        models.AgentTask.agent_type == "pipeline", models.AgentTask.lead_id == message.lead_id
+    ).order_by(models.AgentTask.created_at.desc()).first()
+    recommended_action = (
+        (pipeline_task.output_data or {}).get("recommended_action", {})
+        if pipeline_task
+        else {}
+    )
+    contact_name = (
+        " ".join(filter(None, [contact.first_name, contact.last_name]))
+        if contact
+        else message.from_name
+    )
+    return {
+        "company": company.name if company else "Unknown",
+        "contact": contact_name,
+        "intent": message.intent or "other",
+        "sentiment": message.sentiment,
+        "urgency": message.urgency,
+        "score": qualification.overall_score if qualification else None,
+        "priority": qualification.priority if qualification else None,
+        "recommendation": _simulation_recommendation_text(
+            recommended_action if isinstance(recommended_action, dict) else {},
+            message.follow_up_suggestion,
+        ),
+        "pipeline_stage": lead.status if lead else None,
+        "lead_id": str(lead.id) if lead else None,
+    }
+
+
 @router.post("/inbound", response_model=InboundResponse, status_code=202)
 async def process_inbound_message(
     body: InboundRequest,
@@ -1010,6 +1188,8 @@ async def process_inbound_message(
             },
             "lead_context": lead_context,
         },
+        company_id=uuid.UUID(body.company_id) if body.company_id else None,
+        lead_id=uuid.UUID(body.lead_id) if body.lead_id else None,
     )
 
     # ── 3. Execute with lifecycle ─────────────────────────────────────
