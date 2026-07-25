@@ -69,7 +69,7 @@ _MOCK_RESULTS: dict[str, list[dict[str, str]]] = {
         {
             "title": "Rio Tinto — Global Mining Operations",
             "url": "https://www.riotinto.com/about",
-            "snippet": "Rio Tinto is a leading global mining group with operations in 35 countries. "
+            "snippet": "Rio Tinto is a leading global mining group with operations in 35 nations. "
             "Core products include iron ore, copper, aluminum, and minerals essential for "
             "the energy transition. Rio Tinto operates large-scale open pit and underground "
             "mines worldwide.",
