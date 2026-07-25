@@ -1132,6 +1132,10 @@ async def simulate_inbound_email(
     db.flush()
 
     # ── 3. Process inbound message ────────────────────────────────────
+    logger.info(
+        "[WORKFLOW] inbound started lead=%s company=%s",
+        lead.id, company.name,
+    )
     inbound = await process_inbound_message(
         InboundRequest(
             from_email=body.sender_email.strip(),
@@ -1146,12 +1150,12 @@ async def simulate_inbound_email(
     )
 
     logger.info(
-        "[INBOUND] message processed lead_id=%s task_id=%s",
+        "[WORKFLOW] inbound completed lead_id=%s task_id=%s",
         lead.id, inbound.get("task_id"),
     )
-    logger.info("[LEAD] created id=%s company=%s", lead.id, company.name)
+    logger.info("[LEAD] id=%s company=%s", lead.id, company.name)
 
-    # ── 4. Run research enrichment (if no existing report) ────────────
+    # ── 4. Run research enrichment directly (not via create_research_task) ─
     report = (
         db.query(models.ResearchReport)
         .filter(models.ResearchReport.company_id == company.id)
@@ -1159,65 +1163,133 @@ async def simulate_inbound_email(
         .first()
     )
 
+    report_id: str | None = None
     if not report:
-        # Automatically research the company for richer qualification
+        logger.info(
+            "[WORKFLOW] research started for company=%s domain=%s",
+            effective_name, resolved_domain,
+        )
         try:
-            await create_research_task(
-                ResearchRequest(
-                    company_name=effective_name,
-                    domain=resolved_domain,
-                ),
-                db,
+            # Execute research agent directly (same pattern as inbound agent)
+            research_task_id = uuid.uuid4()
+            research_runtime = build_runtime(db)
+            research_tm = TaskManager(db)
+
+            research_input = AgentTaskInput(
+                id=research_task_id,
+                agent_type="research",
+                input_data={
+                    "company_name": effective_name,
+                    "domain": resolved_domain,
+                },
+                company_id=company.id,
             )
-            # Fetch the newly created report
-            report = (
-                db.query(models.ResearchReport)
-                .filter(models.ResearchReport.company_id == company.id)
-                .order_by(models.ResearchReport.created_at.desc())
-                .first()
+
+            research_db_task = research_tm.create_task(research_input)
+            research_tm.mark_running(research_db_task.id)
+
+            research_context = AgentContext(
+                task_id=research_task_id,
+                correlation_id=f"research-{research_task_id}",
             )
-        except Exception:
-            pass  # Research enrichment is non-blocking
+
+            research_result = await research_runtime.execute(
+                research_context, research_input,
+            )
+
+            # Persist ResearchReport
+            findings = research_result.output_data.get("findings", {})
+            research_report = models.ResearchReport(
+                id=uuid.uuid4(),
+                company_id=company.id,
+                task_id=research_task_id,
+                summary=research_result.summary,
+                findings=findings,
+                sources=[{"url": s} for s in findings.get("sources", [])],
+                provider=research_result.output_data.get("providers_used"),
+            )
+            db.add(research_report)
+
+            # Update company profile with research data
+            if findings.get("industry"):
+                company.industry = findings["industry"]
+            if findings.get("employee_count"):
+                company.employee_count = findings["employee_count"]
+            company.profile_data = findings
+
+            research_tm.mark_completed(research_task_id, research_result.output_data)
+            db.commit()  # Persist research independently so it survives qualification failures
+
+            # Save the new report_id for qualification
+            report_id = str(research_report.id)
+
+            signal_count = len(findings.get("recent_signals", []))
+            evidence_count = len(findings.get("evidence", []))
+            logger.info(
+                "[WORKFLOW] research completed signals=%s evidence=%s company=%s",
+                signal_count, evidence_count, effective_name,
+            )
+
+            # Re-fetch the report for downstream use
+            report = research_report
+
+        except Exception as exc:
+            logger.warning(
+                "[WORKFLOW] research failed for %s: %s — continuing without enrichment",
+                effective_name, exc,
+            )
+
+    else:
+        report_id = str(report.id) if report.id else None
+        logger.info(
+            "[WORKFLOW] existing research found report_id=%s",
+            report_id,
+        )
 
     # ── 5. Qualification with research context ────────────────────────
+    logger.info("[WORKFLOW] qualification started for lead=%s", lead.id)
     qualification = None
     try:
         qualification = await create_qualification_task(
             QualifyRequest(
                 company_name=company.name,
                 lead_id=str(lead.id),
-                report_id=str(report.id) if report else None,
+                report_id=report_id,
             ),
             db,
         )
+        qual_score = qualification.get("score") if isinstance(qualification, dict) else None
         logger.info(
-            "[QUALIFICATION] completed lead_id=%s score=%s",
-            lead.id,
-            qualification.get("score") if isinstance(qualification, dict) else None,
+            "[WORKFLOW] qualification completed lead=%s score=%s",
+            lead.id, qual_score,
         )
     except Exception as exc:
         logger.warning(
-            "[QUALIFICATION] failed lead_id=%s error=%s — continuing without score",
+            "[WORKFLOW] qualification failed lead=%s error=%s — continuing",
             lead.id, exc,
         )
 
     # ── 6. Pipeline evaluation ────────────────────────────────────────
+    logger.info("[WORKFLOW] pipeline started for lead=%s", lead.id)
     pipeline = None
     try:
         pipeline = await evaluate_pipeline(PipelineEvaluateRequest(lead_id=str(lead.id)), db)
         logger.info(
-            "[PIPELINE] evaluated lead_id=%s stage=%s",
+            "[WORKFLOW] pipeline completed lead=%s",
             lead.id,
-            pipeline.get("current_stage") if isinstance(pipeline, dict) else None,
         )
     except Exception as exc:
         logger.warning(
-            "[PIPELINE] failed lead_id=%s error=%s — continuing without evaluation",
+            "[WORKFLOW] pipeline failed lead=%s error=%s — continuing",
             lead.id, exc,
         )
 
     # ── 7. Return result (always include lead_id) ─────────────────────
-    logger.info("[REDIRECT] task_id=%s lead_id=%s", inbound.get("task_id"), lead.id)
+    logger.info(
+        "[WORKFLOW] completed lead=%s company=%s score=%s",
+        lead.id, company.name,
+        qualification.get("score") if isinstance(qualification, dict) else None,
+    )
 
     return {
         "task_id": inbound.get("task_id", ""),
