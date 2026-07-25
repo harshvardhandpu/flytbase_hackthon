@@ -1,7 +1,9 @@
 """BDR research agent — gathers and synthesises company intelligence.
 
-Upgraded with Account Intelligence Engine integration for deeper,
-more structured company analysis with citation tracking.
+Collects external evidence from web search (via Tavily or simulated), then
+uses DeepSeek to synthesise a structured evidence-backed intelligence report.
+
+Every claim in the output must reference a source URL — no hallucinated facts.
 """
 
 from __future__ import annotations
@@ -23,70 +25,88 @@ from app.core.contracts import (
 from app.core.task_manager import TaskManager
 from app.tools.tool_manager import ToolManager
 
-_SYNTHESIS_SYSTEM_PROMPT = """\
-You are a senior BDR intelligence analyst. Synthesize the provided research data
-into a comprehensive company intelligence profile.
+_EVIDENCE_SYNTHESIS_PROMPT = """\
+You are a senior BDR intelligence analyst. Synthesise the provided web search
+results into a structured, **evidence-backed** company intelligence report.
+
+RULES:
+1. Every claim MUST reference a source URL from the search results provided.
+2. Do NOT fabricate facts or sources. If evidence is insufficient, note it.
+3. Categorise signals into the evidence categories below.
 
 Return a JSON object with these EXACT keys:
 {
   "company_name": "Full company name",
   "domain": "Primary domain",
-  "industry": "Industry classification (e.g. Drone Services, SaaS, Mining)",
+  "industry": "Industry classification (e.g. Mining, Drone Services, SaaS)",
   "employee_count": integer or null,
   "location": "Headquarters location or null",
   "description": "2-3 sentence company overview",
-  "company_situation": "2-3 sentence summary of current business situation",
-  "business_problems": ["Specific operational problem 1", "Specific problem 2"],
-  "operational_risks": ["Risk of not solving problem 1", "Risk of not solving problem 2"],
-  "business_signals": ["Growth signals — hiring, funding, expansion, partnerships"],
-  "buying_signals": ["Buying signals — tech stack changes, vendor evaluations, leadership changes"],
-  "pain_points": ["Likely pain points this company faces"],
-  "technology_signals": ["Technology stack and platform signals"],
-  "flytbase_relevance": "Relevance to FlytBase — High/Medium/Low + rationale",
-  "recommended_next_action": "Recommended BDR next step",
-  "recommended_sales_angle": "Specific sales angle for the BDR to lead with",
-  "industry_incidents": [
+  "company_situation": "2-3 sentence summary of current business situation based on evidence",
+  "operational_pain_points": [
     {
-      "title": "Incident title",
-      "summary": "What happened and why it matters",
-      "implication": "Why this creates urgency for the prospect"
+      "pain_point": "Specific operational problem",
+      "evidence": "Evidence supporting this pain point",
+      "source_url": "URL backing this claim"
     }
   ],
-  "sources": ["URLs used in this analysis"],
-  "citations": [
-    {"source": "Source description", "url": "URL", "key_finding": "Key finding from this source"}
+  "buying_signals": [
+    {
+      "signal": "Specific buying signal",
+      "source_url": "URL backing this claim"
+    }
+  ],
+  "business_signals": [
+    {
+      "signal": "Business/growth signal description",
+      "category": "company_news|expansion|hiring|funding|technology|automation|partnership",
+      "source_url": "URL backing this claim",
+      "summary": "Short summary of the signal",
+      "date": "Date of signal or null"
+    }
+  ],
+  "pain_points": ["Likely pain points this company faces"],
+  "technology_signals": ["Technology stack and platform signals"],
+  "why_now": "2-3 sentence explanation of why this company should be contacted now",
+  "flytbase_relevance": "High/Medium/Low — explanation of why FlytBase fits, with evidence",
+  "flytbase_fit": "Specific FlytBase capabilities that address the company's pain points",
+  "recommended_next_action": "Recommended BDR next step",
+  "recommended_sales_angle": "Specific sales angle for the BDR to lead with",
+  "confidence_score": 0-100,
+  "sources": ["All source URLs used"],
+  "evidence": [
+    {
+      "claim": "Specific claim about the company",
+      "source_url": "URL backing this claim"
+    }
   ]
 }
 
 Use only information present in the search results. Do NOT fabricate data.
-Where data is unavailable, note it as \"Insufficient data\" rather than inventing."""
+Where data is unavailable, set to null or empty list rather than inventing."""
 
-# Default fallback search queries when LLM-based planning is unavailable
+# Targeted search queries for evidence categories
 _DEFAULT_SEARCH_QUERIES = [
     "{query} company overview products services",
-    "{query} recent news funding 2026",
-    "{query} technology stack platforms",
-    "{query} team size locations leadership",
-    "{query} business challenges pain points",
+    "{query} recent news press releases 2026",
+    "{query} expansion new offices locations",
+    "{query} hiring careers jobs 2026",
+    "{query} funding investment acquisition",
+    "{query} technology stack automation platforms",
+    "{query} partnerships collaborations",
+    "{query} industry challenges pain points",
 ]
 
 
 class ResearchAgent(BaseAgent):
-    """BDR research agent — single LLM call per task.
+    """BDR research agent — evidence-backed company intelligence.
 
     Workflow:
-    1. Use pre-defined search queries (no LLM call)
-    2. Execute web search for each query
-    3. Extract content from top URLs
-    4. Synthesize findings + account intelligence in a single LLM call
-    5. Persist report with citations and metadata
-
-    LLM calls reduced from 3 → 1 per task:
-    - Planning (removed): hardcoded default queries cover all BDR dimensions
-    - Intelligence analysis (merged): synthesis prompt now includes all
-      intelligence fields (company_situation, business_problems,
-      operational_risks, buying_signals, citations, etc.)
-    - Synthesis (kept): produces the structured BDR report
+    1. Execute web searches for each evidence category
+    2. Extract content from top URLs
+    3. Synthesise findings into structured intelligence via LLM
+    4. Every claim references a source URL — no fabricated facts
+    5. Persist report with evidence and citations
     """
 
     agent_type = "research"
@@ -109,21 +129,18 @@ class ResearchAgent(BaseAgent):
         # ── Step 1: Start ──────────────────────────────────────────────
         self._tm.append_log(
             task_id, "info", "research_started",
-            f"Starting account intelligence research for {company_name!r} domain={domain!r}",
+            f"Starting evidence-backed research for {company_name!r} domain={domain!r}",
             {"company_name": company_name, "domain": domain},
         )
 
         query = company_name or domain
 
-        # ── Step 2: Use default search queries (no LLM call) ────────────
-        # Planning via LLM is skipped to reduce unnecessary calls since
-        # search tools run in simulated mode by default. The hardcoded
-        # queries cover all relevant dimensions for BDR research.
+        # ── Step 2: Generate category-targeted search queries ────────────
         search_queries = [q.format(query=query) for q in _DEFAULT_SEARCH_QUERIES]
 
         self._tm.append_log(
             task_id, "info", "planning_completed",
-            f"Using {len(search_queries)} default research queries",
+            f"Using {len(search_queries)} category-targeted research queries",
             {"queries": search_queries},
         )
 
@@ -197,14 +214,10 @@ class ResearchAgent(BaseAgent):
                     {"tool": "extract_web_content", "url": source_url, "error": str(exc)},
                 )
 
-        # ── Step 5: Synthesize into comprehensive report (single LLM call) ──
-        # Both account intelligence analysis and structured report generation
-        # are done in a single LLM call to reduce API overhead. The synthesis
-        # prompt includes all intelligence fields (business problems,
-        # operational risks, growth signals, buying signals, citations, etc.)
+        # ── Step 5: Synthesise into evidence-backed report ──────────────
         self._tm.append_log(
             task_id, "info", "synthesis_started",
-            "Synthesising research data into structured report via LLM",
+            "Synthesising evidence-backed intelligence report via LLM",
         )
 
         findings = await self._synthesize_report(
@@ -215,15 +228,16 @@ class ResearchAgent(BaseAgent):
             task_id=task_id,
         )
 
-        citations = findings.get("citations", [])
+        evidence = findings.get("evidence", [])
+        sources = findings.get("sources", all_sources)
 
         # ── Step 6: Build report output ────────────────────────────────
         report_id = uuid.uuid4()
 
         self._tm.append_log(
             task_id, "info", "report_created",
-            f"Research report created (id={report_id}) with {len(citations)} citations",
-            {"report_id": str(report_id), "citation_count": len(citations)},
+            f"Research report created (id={report_id}) with {len(evidence)} evidence items",
+            {"report_id": str(report_id), "evidence_count": len(evidence)},
         )
 
         summary = findings.get("description", f"Research completed for {company_name or domain}")
@@ -234,30 +248,32 @@ class ResearchAgent(BaseAgent):
             "employee_count": findings.get("employee_count"),
             "location": findings.get("location"),
             "description": findings.get("description"),
+            # Evidence-backed intelligence
             "company_situation": findings.get("company_situation", ""),
-            "business_problems": findings.get("business_problems", []),
-            "operational_risks": findings.get("operational_risks", []),
-            "business_signals": findings.get("business_signals", []),
+            "operational_pain_points": findings.get("operational_pain_points", []),
             "buying_signals": findings.get("buying_signals", []),
+            "business_signals": findings.get("business_signals", []),
             "pain_points": findings.get("pain_points", []),
             "technology_signals": findings.get("technology_signals", []),
-            "growth_signals": findings.get("business_signals", []),
-            "flytbase_relevance": findings.get("flytbase_relevance"),
-            "recommended_next_action": findings.get("recommended_next_action"),
-            "recommended_sales_angle": findings.get("recommended_sales_angle"),
-            "industry_incidents": findings.get("industry_incidents", []),
-            "sources": findings.get("sources", all_sources),
+            "why_now": findings.get("why_now", ""),
+            "flytbase_relevance": findings.get("flytbase_relevance", ""),
+            "flytbase_fit": findings.get("flytbase_fit", ""),
+            "recommended_next_action": findings.get("recommended_next_action", ""),
+            "recommended_sales_angle": findings.get("recommended_sales_angle", ""),
+            "confidence_score": findings.get("confidence_score", 0),
+            "sources": sources,
         }
 
         output_data: dict[str, Any] = {
             "report_id": str(report_id),
             "findings": report_data,
-            "citations": citations,
+            "evidence": evidence,
             "intelligence_metadata": {
-                "analysis_version": "1.0",
+                "analysis_version": "2.0",
                 "search_count": len(search_queries),
                 "source_count": len(all_sources),
                 "extraction_count": len(content_texts),
+                "evidence_count": len(evidence),
             },
             "providers_used": getattr(self._ai, "name", "unknown"),
         }
@@ -265,11 +281,11 @@ class ResearchAgent(BaseAgent):
         # ── Step 7: Complete ────────────────────────────────────────────
         self._tm.append_log(
             task_id, "info", "task_completed",
-            f"Account intelligence research completed for {company_name or domain}",
+            f"Evidence-backed intelligence research completed for {company_name or domain}",
             {
                 "report_id": str(report_id),
                 "source_count": len(all_sources),
-                "citation_count": len(citations),
+                "evidence_count": len(evidence),
             },
         )
 
@@ -289,8 +305,9 @@ class ResearchAgent(BaseAgent):
         extracted_content: list[str],
         task_id: uuid.UUID,
     ) -> dict[str, Any]:
-        """Use LLM to synthesise search data into a structured BDR report."""
-        search_summary = json.dumps(search_results[:10], indent=2)
+        """Use DeepSeek to synthesise search data into a structured,
+        evidence-backed intelligence report."""
+        search_summary = json.dumps(search_results[:15], indent=2)
         content_summary = "\n\n".join(extracted_content[:5])
 
         user_prompt = (
@@ -298,7 +315,8 @@ class ResearchAgent(BaseAgent):
             f"Domain: {domain or 'Unknown'}\n\n"
             f"=== Search Results ===\n{search_summary}\n\n"
             f"=== Extracted Content ===\n{content_summary}\n\n"
-            "Synthesise the above into a structured BDR intelligence report. "
+            "Synthesise the above into a structured BDR intelligence report.\n"
+            "Every claim MUST reference a source URL from the data above.\n"
             "Return ONLY valid JSON matching the specified schema."
         )
 
@@ -307,25 +325,26 @@ class ResearchAgent(BaseAgent):
             "domain": domain,
             "description": f"Research completed for {company_name or domain}.",
             "company_situation": "",
-            "business_problems": [],
-            "operational_risks": [],
-            "business_signals": [],
+            "operational_pain_points": [],
             "buying_signals": [],
+            "business_signals": [],
             "pain_points": [],
             "technology_signals": [],
+            "why_now": "",
             "flytbase_relevance": "",
+            "flytbase_fit": "",
             "recommended_next_action": "",
             "recommended_sales_angle": "",
-            "industry_incidents": [],
+            "confidence_score": 0,
             "sources": [],
-            "citations": [],
+            "evidence": [],
         }
 
         try:
             response = await self._ai.generate(
                 AIRequest(
                     messages=[
-                        AIMessage(role="system", content=_SYNTHESIS_SYSTEM_PROMPT),
+                        AIMessage(role="system", content=_EVIDENCE_SYNTHESIS_PROMPT),
                         AIMessage(role="user", content=user_prompt),
                     ],
                     temperature=0.3,
@@ -335,19 +354,7 @@ class ResearchAgent(BaseAgent):
             if parsed is not None:
                 return parsed
             return fallback
-        except ProviderError as exc:
-            self._tm.append_log(
-                task_id, "error", "llm_synthesis_failed",
-                f"LLM synthesis failed: {exc}",
-                {"error": str(exc)},
-            )
-            return fallback
-        except Exception as exc:
-            self._tm.append_log(
-                task_id, "error", "llm_synthesis_error",
-                f"Unexpected synthesis error: {exc}",
-                {"error": str(exc)},
-            )
+        except (ProviderError, Exception):
             return fallback
 
 
