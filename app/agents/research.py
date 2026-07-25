@@ -9,6 +9,7 @@ Every claim in the output must reference a source URL — no hallucinated facts.
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from typing import Any
 
@@ -25,6 +26,8 @@ from app.core.contracts import (
 from app.core.task_manager import TaskManager
 from app.intelligence.signal_collector import ResearchSignal, SignalCollector
 from app.tools.tool_manager import ToolManager
+
+logger = logging.getLogger(__name__)
 
 _EVIDENCE_SYNTHESIS_PROMPT = """\
 You are a senior BDR intelligence analyst.  Below you will find a set of
@@ -157,6 +160,11 @@ class ResearchAgent(BaseAgent):
             {"signal_count": len(collected_signals), "source_count": len(all_sources)},
         )
 
+        logger.info(
+            "[RESEARCH] signals_count=%s company=%s",
+            len(collected_signals), company_name,
+        )
+
         # ── Step 3: Extract content from signal source URLs ────────────
         self._tm.append_log(
             task_id, "info", "extraction_started",
@@ -202,6 +210,11 @@ class ResearchAgent(BaseAgent):
         self._tm.append_log(
             task_id, "info", "synthesis_started",
             "Synthesising evidence-backed intelligence report via LLM",
+        )
+
+        logger.info(
+            "[AI SYNTHESIS] started company=%s signals=%s",
+            company_name, len(collected_signals),
         )
 
         findings = await self._synthesize_report(
@@ -303,10 +316,11 @@ class ResearchAgent(BaseAgent):
         """Use DeepSeek to synthesise collected evidence signals into a
         structured, evidence-backed intelligence report.
 
-        The ``collected_signals`` are the structured ``ResearchSignal``
-        objects from ``SignalCollector``.  They are rendered as formatted
-        text in the prompt along with extracted web content so DeepSeek
-        has both the structured signals and the full context.
+        ``collected_signals`` are ``ResearchSignal`` objects from
+        ``SignalCollector``.  They are rendered as formatted text in the
+        prompt for analysis.  If the LLM is unavailable or returns
+        unparseable output, the collected signals are preserved in a
+        structured fallback so no evidence is lost.
         """
         content_summary = "\n\n".join(extracted_content[:5])
         signals_text = SignalCollector.format_signals_for_prompt(collected_signals)
@@ -322,26 +336,46 @@ class ResearchAgent(BaseAgent):
             "Return ONLY valid JSON matching the specified schema."
         )
 
-        fallback: dict[str, Any] = {
-            "company_name": company_name,
-            "domain": domain,
-            "description": f"Research completed for {company_name or domain}.",
-            "company_situation": "",
-            "operational_pain_points": [],
-            "buying_signals": [],
-            "business_signals": [],
-            "pain_points": [],
-            "technology_signals": [],
-            "why_now": "",
-            "flytbase_relevance": "",
-            "flytbase_fit": "",
-            "recommended_next_action": "",
-            "recommended_sales_angle": "",
-            "confidence_score": 0,
-            "recent_signals": [],
-            "sources": [],
-            "evidence": [],
-        }
+        # ── Build evidence-preserving fallback ─────────────────────────────
+        def _build_fallback() -> dict[str, Any]:
+            signal_dicts = [
+                {
+                    "title": s.title,
+                    "url": s.url,
+                    "date": s.date,
+                    "summary": s.summary,
+                    "category": s.category,
+                }
+                for s in collected_signals
+            ]
+            return {
+                "company_name": company_name,
+                "domain": domain,
+                "description": f"Research completed for {company_name or domain}. "
+                "AI synthesis unavailable; evidence signals preserved.",
+                "company_situation": "",
+                "operational_pain_points": [],
+                "buying_signals": [],
+                "business_signals": [],
+                "pain_points": [],
+                "technology_signals": [],
+                "why_now": "",
+                "flytbase_relevance": "",
+                "flytbase_fit": "",
+                "recommended_next_action": "",
+                "recommended_sales_angle": "",
+                "confidence_score": 0,
+                "recent_signals": signal_dicts,
+                "sources": [s.url for s in collected_signals if s.url],
+                "evidence": [
+                    {
+                        "claim": s.summary,
+                        "source_url": s.url,
+                    }
+                    for s in collected_signals
+                    if s.url
+                ],
+            }
 
         try:
             response = await self._ai.generate(
@@ -350,15 +384,34 @@ class ResearchAgent(BaseAgent):
                         AIMessage(role="system", content=_EVIDENCE_SYNTHESIS_PROMPT),
                         AIMessage(role="user", content=user_prompt),
                     ],
-                    temperature=0.3,
+                    temperature=0.2,
+                    max_tokens=800,
+                    metadata={"agent": "research"},
                 )
             )
             parsed = _parse_json_object(response.content)
             if parsed is not None:
+                logger.info(
+                    "[AI SYNTHESIS] success=true company=%s signals=%s",
+                    company_name, len(collected_signals),
+                )
                 return parsed
-            return fallback
+
+            # LLM returned unparseable text (e.g. degraded response)
+            logger.warning(
+                "[AI SYNTHESIS] success=false — unparseable response. "
+                "[FALLBACK] preserving evidence signals=%s company=%s",
+                len(collected_signals), company_name,
+            )
+            return _build_fallback()
+
         except (ProviderError, Exception):
-            return fallback
+            logger.warning(
+                "[AI SYNTHESIS] success=false — provider error. "
+                "[FALLBACK] preserving evidence signals=%s company=%s",
+                len(collected_signals), company_name,
+            )
+            return _build_fallback()
 
 
 # ── JSON parsing helpers ───────────────────────────────────────────────

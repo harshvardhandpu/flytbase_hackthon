@@ -259,6 +259,8 @@ class InboundAgent(BaseAgent):
                         AIMessage(role="user", content=prompt),
                     ],
                     temperature=0.3,
+                    max_tokens=500,
+                    metadata={"agent": "inbound"},
                 )
             )
             parsed = _parse_json_object(response.content)
@@ -349,6 +351,8 @@ class InboundAgent(BaseAgent):
                         AIMessage(role="user", content=prompt),
                     ],
                     temperature=0.3,
+                    max_tokens=500,
+                    metadata={"agent": "inbound"},
                 )
             )
             parsed = _parse_json_object(response.content)

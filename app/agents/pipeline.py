@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import uuid
 from typing import Any
 
@@ -8,11 +7,8 @@ from app.core.contracts import (  # noqa: I001
     AgentContext,
     AgentResult,
     AgentTaskInput,
-    AIMessage,
     AIProvider,
-    AIRequest,
     BaseAgent,
-    ProviderError,
 )
 from app.core.task_manager import TaskManager
 from app.tools.tool_manager import ToolManager
@@ -48,38 +44,6 @@ def _compute_stagnation_risk(days_in_stage: int, engagement_count: int) -> str:
     if days_in_stage > 14:
         return "moderate"
     return "low"
-
-
-# ── LLM prompt ─────────────────────────────────────────────────────────
-
-
-_EVALUATION_PROMPT = """\
-You are a BDR pipeline analyst. Evaluate a lead's pipeline position and
-recommend the next best action for the BDR team.
-
-Consider:
-- Current stage and days spent in it
-- Stage health (healthy / stale / critical)
-- Stagnation risk (low / moderate / high)
-- Engagement signals from the lead's history
-- Overall lead health from research and qualification data
-
-Return ONLY a JSON object with these exact keys:
-{
-  "overall_health": "good | fair | poor",
-  "engagement_level": "high | medium | low | none",
-  "signal_decay": "low | moderate | high",
-  "reengagement_needed": true | false,
-  "recommended_action": {
-    "type": "advance | follow_up | nurture | re_qualify | close | no_action",
-    "channel": "email | phone | linkedin | none",
-    "stage_transition": "string (target stage name or null)",
-    "priority": "urgent | soon | monitor",
-    "action": "1-2 sentence specific action recommendation",
-    "reasoning": "2-3 sentence explanation of the recommendation"
-  }
-}
-"""
 
 
 class PipelineAgent(BaseAgent):
@@ -248,76 +212,75 @@ class PipelineAgent(BaseAgent):
         aggregated: dict[str, Any],
         task_id: uuid.UUID,
     ) -> dict[str, Any]:
-        """Use LLM to evaluate pipeline position and recommend next action."""
-        # Determine reengagement need from deterministic rules
+        """Evaluate pipeline position and recommend next action
+        DETERMINISTICALLY — no LLM call needed.
+
+        This used to make an LLM call for refinement, but for demo
+        reliability the deterministic rules-based approach is sufficient
+        and avoids amplifying provider 503 errors.
+        """
         needs_reengagement = stage_health in ("stale", "critical")
 
-        # Build a concise summary of aggregated data for the LLM
-        data_summary = self._build_data_summary(aggregated)
+        # Deterministic evaluation based on stage health and engagement
+        if stage_health == "critical" and engagement_count == 0:
+            overall_health = "poor"
+            engagement_level = "none"
+            signal_decay = "high"
+        elif stage_health == "stale":
+            overall_health = "fair"
+            engagement_level = "low" if engagement_count < 2 else "medium"
+            signal_decay = "moderate"
+        else:
+            overall_health = "good"
+            engagement_level = "high" if engagement_count >= 5 \
+                else "medium" if engagement_count >= 2 else "low"
+            signal_decay = "low"
+
+        # Deterministic action recommendation
+        if stage_health == "critical":
+            action_type = "re_qualify"
+            channel = "email"
+            priority = "urgent"
+            action = f"Lead stuck in {current_stage} for {days_in_stage}d. " \
+                "Re-qualify or move to closed-lost."
+        elif stage_health == "stale":
+            action_type = "follow_up"
+            channel = "email"
+            priority = "soon"
+            action = f"Lead in {current_stage} for {days_in_stage}d. " \
+                "Send a re-engagement email."
+        elif stagnation_risk == "high":
+            action_type = "nurture"
+            channel = "email"
+            priority = "soon"
+            action = "Low engagement — send valuable content to re-engage."
+        else:
+            action_type = "no_action"
+            channel = "none"
+            priority = "monitor"
+            action = "Lead is progressing normally. Continue monitoring."
 
         fallback: dict[str, Any] = {
-            "overall_health": "fair",
-            "engagement_level": "low",
-            "signal_decay": "moderate",
+            "overall_health": overall_health,
+            "engagement_level": engagement_level,
+            "signal_decay": signal_decay,
             "reengagement_needed": needs_reengagement,
             "recommended_action": {
-                "type": "follow_up" if stage_health in ("stale", "critical")
-                else "no_action",
-                "channel": "email",
+                "type": action_type,
+                "channel": channel,
                 "stage_transition": None,
-                "priority": "urgent" if stage_health == "critical"
-                else "soon" if stage_health == "stale" else "monitor",
-                "action": f"Lead is in {current_stage} for {days_in_stage} days "
-                f"(health: {stage_health}). Recommend BDR review.",
-                "reasoning": "LLM evaluation unavailable — deterministic fallback.",
+                "priority": priority,
+                "action": action,
+                "reasoning": (
+                    f"Lead is in {current_stage} for {days_in_stage}d "
+                    f"(health: {stage_health}, risk: {stagnation_risk}, "
+                    f"engagements: {engagement_count}). "
+                    f"Deterministic evaluation — no LLM call needed."
+                ),
             },
         }
 
-        prompt = (
-            f"Lead ID: {lead_id}\n"
-            f"Current Stage: {current_stage}\n"
-            f"Days in Stage: {days_in_stage}\n"
-            f"Stage Health: {stage_health}\n"
-            f"Stagnation Risk: {stagnation_risk}\n"
-            f"Engagement Count: {engagement_count}\n\n"
-            f"Aggregated Lead Data:\n{data_summary}\n\n"
-            "Evaluate this lead's pipeline position and recommend the next best action.\n"
-            "Return ONLY valid JSON matching the specified schema."
-        )
-
-        try:
-            response = await self._ai.generate(
-                AIRequest(
-                    messages=[
-                        AIMessage(role="system", content=_EVALUATION_PROMPT),
-                        AIMessage(role="user", content=prompt),
-                    ],
-                    temperature=0.3,
-                )
-            )
-            parsed = _parse_json_object(response.content)
-            if parsed and isinstance(parsed, dict):
-                return {
-                    "overall_health": str(
-                        parsed.get("overall_health", "fair")
-                    ),
-                    "engagement_level": str(
-                        parsed.get("engagement_level", "low")
-                    ),
-                    "signal_decay": str(parsed.get("signal_decay", "moderate")),
-                    "reengagement_needed": bool(
-                        parsed.get("reengagement_needed", needs_reengagement)
-                    ),
-                    "recommended_action": parsed.get("recommended_action", {}),
-                }
-            return fallback
-        except (ProviderError, Exception) as exc:
-            self._tm.append_log(
-                task_id, "error", "pipeline_evaluation_failed",
-                f"LLM evaluation failed: {exc}",
-                {"error": str(exc)},
-            )
-            return fallback
+        return fallback
 
     @staticmethod
     def _build_data_summary(aggregated: dict[str, Any]) -> str:
@@ -373,29 +336,3 @@ class PipelineAgent(BaseAgent):
         return "\n".join(parts)
 
 
-# ── JSON parsing helper ────────────────────────────────────────────────
-
-
-def _parse_json_object(text: str) -> dict[str, Any] | None:
-    """Best-effort parse of a JSON object from LLM output."""
-    cleaned = text.strip()
-    lines = cleaned.split("\n")
-    cleaned = "\n".join(
-        line for line in lines if not line.strip().startswith("```")
-    ).strip()
-    try:
-        parsed = json.loads(cleaned)
-        if isinstance(parsed, dict):
-            return parsed
-    except json.JSONDecodeError:
-        pass
-    start = cleaned.find("{")
-    end = cleaned.rfind("}")
-    if start != -1 and end > start:
-        try:
-            parsed = json.loads(cleaned[start: end + 1])
-            if isinstance(parsed, dict):
-                return parsed
-        except json.JSONDecodeError:
-            pass
-    return None

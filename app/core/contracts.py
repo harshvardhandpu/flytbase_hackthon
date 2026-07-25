@@ -32,6 +32,7 @@ class AIRequest(BaseModel):
     messages: list[AIMessage]
     model: str | None = None
     temperature: float | None = Field(default=None, ge=0, le=2)
+    max_tokens: int | None = Field(default=None, ge=1, le=32000)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 

@@ -278,6 +278,8 @@ class OutreachAgent(BaseAgent):
                         AIMessage(role="user", content=prompt),
                     ],
                     temperature=0.3,
+                    max_tokens=500,
+                    metadata={"agent": "outreach"},
                 )
             )
             parsed = _parse_json_object(response.content)
@@ -327,6 +329,8 @@ class OutreachAgent(BaseAgent):
                         AIMessage(role="user", content=prompt),
                     ],
                     temperature=0.3,
+                    max_tokens=500,
+                    metadata={"agent": "outreach"},
                 )
             )
             parsed = _parse_json_object(response.content)
@@ -375,6 +379,8 @@ class OutreachAgent(BaseAgent):
                         AIMessage(role="user", content=prompt),
                     ],
                     temperature=0.3,
+                    max_tokens=500,
+                    metadata={"agent": "outreach"},
                 )
             )
             parsed = _parse_json_object(response.content)

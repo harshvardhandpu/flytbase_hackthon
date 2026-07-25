@@ -20,10 +20,11 @@ _NVIDIA_HOST = "integrate.api.nvidia.com"
 # ── Request throttling ─────────────────────────────────────────────────
 # Global semaphore shared across all OpenAIProvider instances (via module
 # singleton) to prevent concurrent requests from overwhelming the provider.
-# NVIDIA DeepSeek has a per-worker limit of 48 concurrent requests; with
-# semaphore=2 and max_retries=1 we stay well clear of that limit even when
-# multiple agents fire simultaneously.
-_AI_REQUEST_LIMIT = 2
+# NVIDIA DeepSeek has a per-worker limit of 48 concurrent requests. One
+# inbound simulation triggers ~6 AI calls across Research + Qualification +
+# Inbound + Pipeline agents. With semaphore=1 only one request is active
+# at a time, preventing ResourceExhausted amplification.
+_AI_REQUEST_LIMIT = 1
 _ai_semaphore = asyncio.Semaphore(_AI_REQUEST_LIMIT)
 
 _MAX_RETRIES = 1
@@ -73,10 +74,12 @@ class OpenAIProvider(ConfiguredProvider):
         request_url = f"{base_url}/v1/chat/completions"
 
         # ── Debug: log AI request metadata ─────────────────────────────
+        agent_label = request.metadata.get("agent", "unknown")
         logger.info(
-            "[AI REQUEST] provider=%s base_url=%s request_url=%s model=%s "
+            "[AI REQUEST] provider=%s agent=%s base_url=%s request_url=%s model=%s "
             "key_set=%s nvidia=%s",
             self.name,
+            agent_label,
             base_url,
             request_url,
             model,
@@ -97,6 +100,8 @@ class OpenAIProvider(ConfiguredProvider):
         }
         if request.temperature is not None:
             payload["temperature"] = request.temperature
+        if request.max_tokens is not None:
+            payload["max_tokens"] = request.max_tokens
 
         # ── NVIDIA DeepSeek: add chat_template_kwargs ──────────────────
         if is_nvidia:

@@ -515,7 +515,8 @@ class QualificationAgent(BaseAgent):
                         AIMessage(role="system", content=_EVIDENCE_SCORING_PROMPT),
                         AIMessage(role="user", content=prompt),
                     ],
-                    temperature=0.3,
+                    max_tokens=500,
+                    metadata={"agent": "qualification"},
                 )
             )
             parsed = _parse_json_object(response.content)
@@ -610,59 +611,69 @@ class QualificationAgent(BaseAgent):
         findings: dict[str, Any],
         task_id: uuid.UUID,
     ) -> tuple[str, list[str], str]:
-        """Use LLM to refine sales angle and generate composite reasoning."""
-        fallback = (
-            f"Engage {company_name} based on {', '.join([
-                s for s in [
-                    f"industry fit ({findings.get('industry', '?')})",
-                    f"pain alignment ({pain_score}/30 pts)",
-                    f"buying intent ({intent_score}/25 pts)",
-                ] if s
-            ])}.",
-            [],
-            f"Qualification completed: score={overall_score}/100 ({priority}).",
-        )
+        """Build composite sales angle and reasoning DETERMINISTICALLY
+        from component scores and research evidence — no LLM call needed.
 
-        operational_pain_points = findings.get("operational_pain_points", [])
+        This used to make an extra LLM call for refinement, but for demo
+        reliability the deterministic output is sufficient and avoids
+        amplifying provider 503 errors.
+        """
+        # ── Deterministic sales angle ──────────────────────────────────
+        pain_points = findings.get("operational_pain_points", [])
+        pain_summary = ", ".join(
+            p.get("pain_point", "") for p in pain_points[:3]
+        ) if pain_points else ""
         buying_signals = findings.get("buying_signals", [])
+        buying_summary = ", ".join(
+            s.get("signal", "") for s in buying_signals[:3]
+        ) if buying_signals else ""
+        industry = findings.get("industry", "")
         company_situation = findings.get("company_situation", "")
-        flytbase_fit = findings.get("flytbase_fit", "")
 
-        prompt = (
-            f"Company: {company_name}\n"
-            f"Industry: {findings.get('industry', 'Unknown')}\n"
-            f"Company Situation: {company_situation}\n"
-            f"FlytBase Fit: {flytbase_fit}\n\n"
-            f"Scores:\n"
-            f"  ICP Match:      {icp_score}/30\n"
-            f"  Pain Alignment: {pain_score}/30\n"
-            f"  Buying Intent:  {intent_score}/25\n"
-            f"  Company Fit:    {fit_score}/15\n"
-            f"  Overall:        {overall_score}/100 ({priority})\n"
-            f"  Urgency:        {urgency}\n\n"
-            f"Operational Pain Points: {json.dumps(operational_pain_points, indent=2)}\n\n"
-            f"Buying Signals: {json.dumps(buying_signals, indent=2)}\n"
+        angle_parts: list[str] = []
+        if company_situation:
+            angle_parts.append(f"Based on {company_situation}")
+        if pain_summary:
+            angle_parts.append(f"address {pain_summary}")
+        if buying_summary:
+            angle_parts.append(f"capitalize on {buying_summary}")
+        sales_angle = (
+            ". ".join(angle_parts[:2])
+            if angle_parts
+            else f"Engage {company_name} based on industry fit ({industry or '?'}), "
+            f"pain alignment ({pain_score}/30 pts), "
+            f"buying intent ({intent_score}/25 pts)."
         )
 
-        try:
-            response = await self._ai.generate(
-                AIRequest(
-                    messages=[
-                        AIMessage(role="system", content=_COMPOSITE_PROMPT),
-                        AIMessage(role="user", content=prompt),
-                    ],
-                    temperature=0.3,
-                )
-            )
-            parsed = _parse_json_object(response.content)
-            if parsed and isinstance(parsed, dict):
-                angle = str(parsed.get("sales_angle", "")) or fallback[0]
-                reasons: list[str] = parsed.get("reasons", []) or []
-                reasoning = str(parsed.get("reasoning", "")) or fallback[2]
-                return angle, reasons, reasoning
-            return fallback
-        except (ProviderError, Exception):
-            return fallback
+        # ── Deterministic reasons ──────────────────────────────────────
+        reasons: list[str] = []
+        if pain_summary:
+            reasons.append(f"+ Operational pain points detected: {pain_summary}")
+        if buying_summary:
+            reasons.append(f"+ Buying signals present: {buying_summary}")
+        if industry:
+            reasons.append(f"+ Industry {industry} aligns with FlytBase ICP")
+        reasons.append(
+            f"Score: {overall_score}/100 ({priority}) — urgency: {urgency}"
+        )
+
+        # ── Deterministic reasoning ────────────────────────────────────
+        reasoning = (
+            f"Qualification completed for {company_name}: "
+            f"score={overall_score}/100 ({priority}). "
+            f"ICP Match={icp_score}/30, "
+            f"Pain Alignment={pain_score}/30, "
+            f"Buying Intent={intent_score}/25, "
+            f"Company Fit={fit_score}/15. "
+        )
+        if overall_score >= 70:
+            reasoning += "Strong fit — recommend immediate outreach."
+        elif overall_score >= 40:
+            reasoning += "Moderate fit — recommend nurturing."
+        else:
+            reasoning += "Weak fit — consider re-qualification or lower priority."
+
+        return sales_angle, reasons, reasoning
 
 
 # ── JSON parsing helper ────────────────────────────────────────────────
