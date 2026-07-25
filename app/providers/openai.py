@@ -16,8 +16,18 @@ logger = logging.getLogger(__name__)
 _OPENAI_DEFAULT_MODEL = "gpt-4o"
 _OPENAI_DEFAULT_BASE_URL = "https://api.openai.com"
 _NVIDIA_HOST = "integrate.api.nvidia.com"
-_MAX_RETRIES = 3
-_RETRY_BASE_DELAY = 1.5  # seconds
+
+# ── Request throttling ─────────────────────────────────────────────────
+# Global semaphore shared across all OpenAIProvider instances (via module
+# singleton) to prevent concurrent requests from overwhelming the provider.
+# NVIDIA DeepSeek has a per-worker limit of 48 concurrent requests; with
+# semaphore=2 and max_retries=1 we stay well clear of that limit even when
+# multiple agents fire simultaneously.
+_AI_REQUEST_LIMIT = 2
+_ai_semaphore = asyncio.Semaphore(_AI_REQUEST_LIMIT)
+
+_MAX_RETRIES = 1
+_RETRY_BASE_DELAY = 2.0  # seconds
 
 
 class OpenAIProvider(ConfiguredProvider):
@@ -26,12 +36,19 @@ class OpenAIProvider(ConfiguredProvider):
     Uses plain ``httpx`` — no OpenAI SDK dependency.
     Compatible with any OpenAI-compatible endpoint by setting ``OPENAI_BASE_URL``.
 
+    Throttling & resilience:
+    - Global ``asyncio.Semaphore`` limits concurrent requests to
+      ``AI_REQUEST_LIMIT=2``.
+    - On 503 ``ResourceExhausted``, retries once after 2 s backoff
+      (``_MAX_RETRIES=1``).
+    - If the provider still returns 503 after the retry, a degraded
+      ``AIResponse`` is returned instead of raising ``ProviderError``,
+      allowing downstream agents to continue with best-effort results.
+
     NVIDIA DeepSeek support:
     - Auto-detects NVIDIA endpoint via base URL
     - Adds ``chat_template_kwargs`` with ``thinking=true`` and
       ``reasoning_effort="high"`` for deeper reasoning
-    - Retries up to 3 times with exponential backoff on 503
-      ``ResourceExhausted`` responses
     """
 
     name = "openai"
@@ -93,50 +110,69 @@ class OpenAIProvider(ConfiguredProvider):
             "content-type": "application/json",
         }
 
-        # ── Retry loop for 503 ResourceExhausted ───────────────────────
-        last_exc: Exception | None = None
-        for attempt in range(1, _MAX_RETRIES + 1):
-            try:
-                return await self._post_with_retry(
-                    request_url=request_url,
-                    headers=headers,
-                    payload=payload,
-                    model=model,
-                    attempt=attempt,
-                )
-            except ProviderError as exc:
-                last_exc = exc
-                # Only retry on 503 ResourceExhausted
-                if exc.status_code != 503:
-                    raise
-                if attempt < _MAX_RETRIES:
-                    delay = _RETRY_BASE_DELAY * (2 ** (attempt - 1))
-                    logger.warning(
-                        "[AI RETRY] provider=%s attempt=%s/%s status=503 "
-                        "retry_after=%.1fs error=%s",
-                        self.name,
-                        attempt,
-                        _MAX_RETRIES,
-                        delay,
-                        exc.message,
-                    )
-                    await asyncio.sleep(delay)
-
-        # All retries exhausted
-        if isinstance(last_exc, ProviderError):
-            raise ProviderError(
-                provider=self.name,
-                status_code=503,
-                message=(
-                    f"NVIDIA API rate limit exceeded after {_MAX_RETRIES} retries: "
-                    f"{last_exc.message}"
-                ),
-            )
-        raise ProviderError(
-            provider=self.name,
-            status_code=503,
-            message=f"Request failed after {_MAX_RETRIES} retries",
+        # ── Throttle: wait for semaphore before hitting the provider ────
+        logger.info(
+            "[AI QUEUE] provider=%s waiting (limit=%s active=%s)",
+            self.name,
+            _AI_REQUEST_LIMIT,
+            _AI_REQUEST_LIMIT - _ai_semaphore._value,  # pyright: ignore
         )
+        async with _ai_semaphore:
+            logger.info("[AI QUEUE] provider=%s acquired semaphore", self.name)
+
+            # ── Retry loop for 503 ResourceExhausted ───────────────────
+            last_exc: Exception | None = None
+            for attempt in range(1, _MAX_RETRIES + 1):
+                try:
+                    return await self._post_with_retry(
+                        request_url=request_url,
+                        headers=headers,
+                        payload=payload,
+                        model=model,
+                        attempt=attempt,
+                    )
+                except ProviderError as exc:
+                    last_exc = exc
+                    # Only retry on 503 ResourceExhausted
+                    if exc.status_code != 503:
+                        raise
+                    if attempt < _MAX_RETRIES:
+                        delay = _RETRY_BASE_DELAY * (2 ** (attempt - 1))
+                        logger.warning(
+                            "[AI RETRY] provider=%s attempt=%s/%s status=503 "
+                            "retry_after=%.1fs error=%s",
+                            self.name,
+                            attempt,
+                            _MAX_RETRIES,
+                            delay,
+                            exc.message,
+                        )
+                        await asyncio.sleep(delay)
+
+            # All retries exhausted — return degraded response
+            last_error = last_exc.message if isinstance(last_exc, ProviderError) else "unknown"
+            logger.error(
+                "[AI FALLBACK] provider=%s after %s retries — returning degraded "
+                "response. error=%s",
+                self.name,
+                _MAX_RETRIES,
+                last_error,
+            )
+            return AIResponse(
+                content=(
+                    "[AI provider temporarily unavailable — using fallback analysis. "
+                    f"Reason: {last_error}]"
+                ),
+                model=model,
+                provider=self.name,
+                usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                raw_metadata={
+                    "status": "degraded",
+                    "reason": last_error,
+                    "retries_attempted": _MAX_RETRIES,
+                    "semaphore_limit": _AI_REQUEST_LIMIT,
+                },
+            )
 
     async def _post_with_retry(
         self,
