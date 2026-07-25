@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from app.agents.research import ResearchAgent, _parse_json_list, _parse_json_object
+from app.agents.research import ResearchAgent, _parse_json_object
 from app.config import get_settings
 from app.core.contracts import AgentContext, AgentResult, AgentTaskInput, AIRequest, AIResponse
 from app.providers.manager import ProviderManager
@@ -15,28 +15,27 @@ from app.tools import SimulatedContentExtractorTool, SimulatedWebSearchTool, Too
 
 
 class FakeAIProvider:
-    """Returns canned responses for testing."""
+    """Returns canned responses for testing.
+
+    Since the ResearchAgent now uses a single LLM call (synthesis),
+    only one response is needed. The old planning response is removed.
+    """
 
     name = "test-provider"
 
-    def __init__(self, planning_response: str, synthesis_response: str) -> None:
-        self._planning = planning_response
+    def __init__(self, synthesis_response: str) -> None:
         self._synthesis = synthesis_response
         self.last_request: AIRequest | None = None
 
     async def generate(self, request: AIRequest) -> AIResponse:
         self.last_request = request
-        is_synthesis = "Synthesise" in request.messages[-1].content if request.messages else False
-        content = self._synthesis if is_synthesis else self._planning
-        return AIResponse(content=content, provider=self.name)
+        return AIResponse(content=self._synthesis, provider=self.name)
 
 
 def logged_event_types(tm: MagicMock) -> set[str]:
     """Extract event_type values from append_log call records."""
     events: set[str] = set()
     for call in tm.append_log.call_args_list:
-        # call is a _Call object with .args tuple of positional args
-        # append_log(task_id, level, event_type, message, data=None)
         if hasattr(call, "args") and len(call.args) >= 3:
             events.add(str(call.args[2]))
     return events
@@ -63,24 +62,6 @@ def task_input() -> AgentTaskInput:
 
 
 # ── JSON parsing helpers ───────────────────────────────────────────────
-
-
-class TestParseJsonList:
-    def test_parses_clean_array(self) -> None:
-        result = _parse_json_list('["query1", "query2"]')
-        assert result == ["query1", "query2"]
-
-    def test_parses_array_in_code_fence(self) -> None:
-        result = _parse_json_list('```json\n["q1", "q2"]\n```')
-        assert result == ["q1", "q2"]
-
-    def test_returns_empty_for_invalid(self) -> None:
-        result = _parse_json_list("not json at all")
-        assert result == []
-
-    def test_rejects_non_array_json(self) -> None:
-        result = _parse_json_list('{"key": "value"}')
-        assert result == []
 
 
 class TestParseJsonObject:
@@ -110,17 +91,25 @@ class TestResearchAgent:
         self, task_context: AgentContext, task_input: AgentTaskInput
     ) -> None:
         fake_ai = FakeAIProvider(
-            planning_response='["flytbase overview", "flytbase funding"]',
             synthesis_response=(
                 '{"company_name": "FlytBase", "domain": "flytbase.com", '
                 '"industry": "Drone Services", "employee_count": 200, '
                 '"location": "San Francisco", "description": "A drone platform.", '
+                '"company_situation": "Scaling operations worldwide.", '
+                '"business_problems": ["Scaling drone ops"], '
+                '"operational_risks": ["Coordination overhead"], '
                 '"business_signals": ["Series A funding"], '
+                '"buying_signals": ["Hiring integration engineers"], '
                 '"pain_points": ["Scaling operations"], '
                 '"technology_signals": ["DJI integration"], '
                 '"flytbase_relevance": "High", '
                 '"recommended_next_action": "Demo", '
-                '"sources": ["https://flytbase.com"]}'
+                '"recommended_sales_angle": "Lead with operational visibility", '
+                '"industry_incidents": [], '
+                '"sources": ["https://flytbase.com"], '
+                '"citations": [{"source": "FlytBase", '
+                '"url": "https://flytbase.com", '
+                '"key_finding": "Drone platform"}]}'
             ),
         )
         tools = ToolManager([SimulatedWebSearchTool(), SimulatedContentExtractorTool()])
@@ -133,14 +122,24 @@ class TestResearchAgent:
         assert result.output_data["findings"]["company_name"] == "FlytBase"
         assert result.output_data["findings"]["industry"] == "Drone Services"
         assert result.output_data["findings"]["business_signals"] == ["Series A funding"]
+        assert result.output_data["findings"]["buying_signals"] == [
+            "Hiring integration engineers"
+        ]
+        assert (
+            result.output_data["findings"]["company_situation"]
+            == "Scaling operations worldwide."
+        )
+        assert (
+            result.output_data["findings"]["recommended_sales_angle"]
+            == "Lead with operational visibility"
+        )
         assert "report_id" in result.output_data
         assert not result.requires_human_approval
 
-        # Verify step logging
+        # Verify step logging (planning and intelligence events consolidated)
         events = logged_event_types(tm)
         for expected in (
             "research_started",
-            "planning_started",
             "planning_completed",
             "synthesis_started",
             "report_created",
@@ -149,46 +148,18 @@ class TestResearchAgent:
             assert expected in events, f"Missing log event: {expected}"
 
     @pytest.mark.asyncio
-    async def test_handles_llm_planning_failure(
-        self, task_context: AgentContext, task_input: AgentTaskInput
-    ) -> None:
-        """When LLM fails, agent falls back to default queries and continues."""
-        fake_ai = FakeAIProvider(
-            planning_response="not valid json at all",
-            synthesis_response=(
-                '{"company_name": "FlytBase", "description": "Partial result.", '
-                '"business_signals": [], "pain_points": [], '
-                '"technology_signals": [], "sources": []}'
-            ),
-        )
-        tools = ToolManager([SimulatedWebSearchTool(), SimulatedContentExtractorTool()])
-        tm = make_fake_tm()
-
-        agent = ResearchAgent(ai_provider=fake_ai, tool_manager=tools, task_manager=tm)
-        result = await agent.run(task_context, task_input)
-
-        assert result.summary == "Partial result."
-        assert result.output_data["findings"]["company_name"] == "FlytBase"
-
-        events = logged_event_types(tm)
-        assert "task_completed" in events
-
-    @pytest.mark.asyncio
     async def test_handles_synthesis_failure(
         self, task_context: AgentContext, task_input: AgentTaskInput
     ) -> None:
         """When synthesis LLM fails, agent returns fallback report."""
-        fake_ai = FakeAIProvider(
-            planning_response='["flytbase overview"]',
-            synthesis_response="not valid json at all",
-        )
+        fake_ai = FakeAIProvider(synthesis_response="not valid json at all")
         tools = ToolManager([SimulatedWebSearchTool(), SimulatedContentExtractorTool()])
         tm = make_fake_tm()
 
         agent = ResearchAgent(ai_provider=fake_ai, tool_manager=tools, task_manager=tm)
         result = await agent.run(task_context, task_input)
 
-        # Should still complete with fallback that includes a trailing period
+        # Should still complete with fallback
         assert "Research completed for FlytBase" in result.summary
         assert result.output_data["findings"]["company_name"] == "FlytBase"
 
@@ -196,10 +167,10 @@ class TestResearchAgent:
     async def test_requires_company_or_domain(self) -> None:
         """Agent should handle empty input gracefully."""
         fake_ai = FakeAIProvider(
-            planning_response='["search query"]',
             synthesis_response=(
                 '{"description": "No data.", "business_signals": [], '
-                '"pain_points": [], "technology_signals": [], "sources": []}'
+                '"pain_points": [], "technology_signals": [], "sources": [], '
+                '"citations": []}'
             ),
         )
         tools = ToolManager([SimulatedWebSearchTool(), SimulatedContentExtractorTool()])
@@ -225,10 +196,10 @@ class TestResearchAgent:
         failing_tools.execute.side_effect = ValueError("Connection lost")
 
         fake_ai = FakeAIProvider(
-            planning_response='["flytbase overview"]',
             synthesis_response=(
                 '{"description": "Limited data.", "business_signals": [], '
-                '"pain_points": [], "technology_signals": [], "sources": []}'
+                '"pain_points": [], "technology_signals": [], "sources": [], '
+                '"citations": []}'
             ),
         )
         tm = make_fake_tm()
@@ -265,9 +236,9 @@ class TestResearchAgentRealProvider:
     """Integration tests that call the real FreeModelProvider via ProviderManager.
 
     These tests verify the ResearchAgent full pipeline with a live LLM:
-    ProviderManager resolves the correct provider, the agent runs planning,
-    search, extraction, intelligence analysis, and synthesis with real LLM
-    calls, and the output contains valid structured research.
+    ProviderManager resolves the correct provider, the agent runs the full
+    research workflow with a single LLM synthesis call, and the output
+    contains valid structured research.
 
     Uses simulated search/extraction tools so the LLM has predictable data
     to work with. Even if the freemodel API is unreachable, the agent
@@ -320,7 +291,7 @@ class TestResearchAgentRealProvider:
         assert isinstance(findings.get("technology_signals"), list)
         assert isinstance(findings.get("sources"), list)
 
-        # Account Intelligence enriched fields
+        # Account Intelligence enriched fields (now from single synthesis call)
         assert "company_situation" in findings
         assert "growth_signals" in findings
         assert "buying_signals" in findings
@@ -351,10 +322,7 @@ class TestResearchAgentRealProvider:
         events = logged_event_types(tm)
         for expected in (
             "research_started",
-            "planning_started",
             "planning_completed",
-            "intelligence_analysis_started",
-            "intelligence_analysis_completed",
             "synthesis_started",
             "report_created",
             "task_completed",

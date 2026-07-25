@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
+from typing import Any
 
 import httpx
 
@@ -13,6 +15,9 @@ logger = logging.getLogger(__name__)
 
 _OPENAI_DEFAULT_MODEL = "gpt-4o"
 _OPENAI_DEFAULT_BASE_URL = "https://api.openai.com"
+_NVIDIA_HOST = "integrate.api.nvidia.com"
+_MAX_RETRIES = 3
+_RETRY_BASE_DELAY = 1.5  # seconds
 
 
 class OpenAIProvider(ConfiguredProvider):
@@ -20,6 +25,13 @@ class OpenAIProvider(ConfiguredProvider):
 
     Uses plain ``httpx`` — no OpenAI SDK dependency.
     Compatible with any OpenAI-compatible endpoint by setting ``OPENAI_BASE_URL``.
+
+    NVIDIA DeepSeek support:
+    - Auto-detects NVIDIA endpoint via base URL
+    - Adds ``chat_template_kwargs`` with ``thinking=true`` and
+      ``reasoning_effort="high"`` for deeper reasoning
+    - Retries up to 3 times with exponential backoff on 503
+      ``ResourceExhausted`` responses
     """
 
     name = "openai"
@@ -28,18 +40,31 @@ class OpenAIProvider(ConfiguredProvider):
         self._settings = settings or get_settings()
 
     async def generate(self, request: AIRequest) -> AIResponse:
-        base_url = self._settings.openai_base_url or _OPENAI_DEFAULT_BASE_URL
+        raw_base_url = self._settings.openai_base_url or _OPENAI_DEFAULT_BASE_URL
         api_key = self._settings.openai_api_key
 
         model = request.model or self._settings.openai_model or _OPENAI_DEFAULT_MODEL
 
+        # Normalise base URL: strip trailing /v1 to avoid double-path
+        # when users set OPENAI_BASE_URL=https://integrate.api.nvidia.com/v1
+        base_url = _normalize_openai_base_url(raw_base_url)
+
+        # Detect NVIDIA DeepSeek endpoint for special handling
+        is_nvidia = _NVIDIA_HOST in base_url
+
+        # Build the final request URL once for debug logging
+        request_url = f"{base_url}/v1/chat/completions"
+
         # ── Debug: log AI request metadata ─────────────────────────────
         logger.info(
-            "[AI REQUEST] provider=%s base_url=%s model=%s key_set=%s",
+            "[AI REQUEST] provider=%s base_url=%s request_url=%s model=%s "
+            "key_set=%s nvidia=%s",
             self.name,
             base_url,
+            request_url,
             model,
             bool(api_key),
+            is_nvidia,
         )
 
         if not api_key:
@@ -49,30 +74,93 @@ class OpenAIProvider(ConfiguredProvider):
                 message="OPENAI_API_KEY is not configured",
             )
 
-        payload: dict = {
+        payload: dict[str, Any] = {
             "model": model,
             "messages": [{"role": m.role, "content": m.content} for m in request.messages],
         }
         if request.temperature is not None:
             payload["temperature"] = request.temperature
 
+        # ── NVIDIA DeepSeek: add chat_template_kwargs ──────────────────
+        if is_nvidia:
+            payload["chat_template_kwargs"] = {
+                "thinking": True,
+                "reasoning_effort": "high",
+            }
+
         headers = {
             "Authorization": f"Bearer {api_key}",
             "content-type": "application/json",
         }
 
+        # ── Retry loop for 503 ResourceExhausted ───────────────────────
+        last_exc: Exception | None = None
+        for attempt in range(1, _MAX_RETRIES + 1):
+            try:
+                return await self._post_with_retry(
+                    request_url=request_url,
+                    headers=headers,
+                    payload=payload,
+                    model=model,
+                    attempt=attempt,
+                )
+            except ProviderError as exc:
+                last_exc = exc
+                # Only retry on 503 ResourceExhausted
+                if exc.status_code != 503:
+                    raise
+                if attempt < _MAX_RETRIES:
+                    delay = _RETRY_BASE_DELAY * (2 ** (attempt - 1))
+                    logger.warning(
+                        "[AI RETRY] provider=%s attempt=%s/%s status=503 "
+                        "retry_after=%.1fs error=%s",
+                        self.name,
+                        attempt,
+                        _MAX_RETRIES,
+                        delay,
+                        exc.message,
+                    )
+                    await asyncio.sleep(delay)
+
+        # All retries exhausted
+        if isinstance(last_exc, ProviderError):
+            raise ProviderError(
+                provider=self.name,
+                status_code=503,
+                message=(
+                    f"NVIDIA API rate limit exceeded after {_MAX_RETRIES} retries: "
+                    f"{last_exc.message}"
+                ),
+            )
+        raise ProviderError(
+            provider=self.name,
+            status_code=503,
+            message=f"Request failed after {_MAX_RETRIES} retries",
+        )
+
+    async def _post_with_retry(
+        self,
+        *,
+        request_url: str,
+        headers: dict[str, str],
+        payload: dict[str, Any],
+        model: str,
+        attempt: int,
+    ) -> AIResponse:
         start = time.monotonic()
-        async with httpx.AsyncClient(timeout=60.0) as client:
+
+        async with httpx.AsyncClient(timeout=120.0) as client:
             try:
                 response = await client.post(
-                    f"{base_url.rstrip('/')}/v1/chat/completions",
+                    request_url,
                     headers=headers,
                     json=payload,
                 )
             except httpx.RequestError as exc:
                 latency = time.monotonic() - start
                 logger.error(
-                    "[AI RESPONSE] provider=%s success=false latency=%.2fs error=RequestError: %s",
+                    "[AI RESPONSE] provider=%s success=false latency=%.2fs "
+                    "error=RequestError: %s",
                     self.name,
                     latency,
                     exc,
@@ -84,6 +172,23 @@ class OpenAIProvider(ConfiguredProvider):
                 ) from exc
 
         latency = time.monotonic() - start
+
+        if response.status_code == 503:
+            detail = _extract_openai_error(response)
+            logger.error(
+                "[AI RESPONSE] provider=%s success=false latency=%.2fs "
+                "status_code=503 attempt=%s/%s error=%s",
+                self.name,
+                latency,
+                attempt,
+                _MAX_RETRIES,
+                detail,
+            )
+            raise ProviderError(
+                provider=self.name,
+                status_code=503,
+                message=detail,
+            )
 
         if response.status_code != 200:
             detail = _extract_openai_error(response)
@@ -112,12 +217,14 @@ class OpenAIProvider(ConfiguredProvider):
 
         logger.info(
             "[AI RESPONSE] provider=%s success=true latency=%.2fs "
-            "model=%s total_tokens=%s finish_reason=%s",
+            "model=%s total_tokens=%s finish_reason=%s attempt=%s/%s",
             self.name,
             latency,
             data.get("model", model),
             usage.get("total_tokens", "?"),
             choice.get("finish_reason", "?"),
+            attempt,
+            _MAX_RETRIES,
         )
 
         return AIResponse(
@@ -130,6 +237,21 @@ class OpenAIProvider(ConfiguredProvider):
                 "system_fingerprint": data.get("system_fingerprint"),
             },
         )
+
+
+def _normalize_openai_base_url(url: str) -> str:
+    """Strip trailing ``/v1`` so the provider can safely append ``/v1/chat/completions``.
+
+    Handles:
+    - ``https://integrate.api.nvidia.com``        → keeps as-is
+    - ``https://integrate.api.nvidia.com/v1``      → strips ``/v1``
+    - ``https://integrate.api.nvidia.com/v1/``     → strips trailing ``/v1/``
+    - ``https://api.openai.com``                  → keeps as-is
+    """
+    stripped = url.rstrip("/")
+    if stripped.endswith("/v1"):
+        stripped = stripped[:-3]
+    return stripped.rstrip("/")
 
 
 def _extract_openai_error(response: httpx.Response) -> str:

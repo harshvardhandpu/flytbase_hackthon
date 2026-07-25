@@ -21,56 +21,72 @@ from app.core.contracts import (
     ProviderError,
 )
 from app.core.task_manager import TaskManager
-from app.intelligence.account_research import AccountResearchIntelligence
 from app.tools.tool_manager import ToolManager
 
-_PLANNING_SYSTEM_PROMPT = """\
-You are a BDR research planner. Given a company name and/or domain,
-generate 3-5 web search queries that will help build a complete
-company intelligence profile.
-
-Focus on:
-- Company overview, products, and services
-- Recent news, funding, and strategic moves
-- Technology stack and platform signals
-- Team size, locations, and key personnel
-- Pain points and business challenges
-
-Return ONLY a JSON array of query strings. No explanation, no markdown."""
-
 _SYNTHESIS_SYSTEM_PROMPT = """\
-You are a BDR intelligence analyst. Synthesize the provided research data
-into a structured company profile.
+You are a senior BDR intelligence analyst. Synthesize the provided research data
+into a comprehensive company intelligence profile.
 
 Return a JSON object with these EXACT keys:
 {
   "company_name": "Full company name",
   "domain": "Primary domain",
-  "industry": "Industry classification (e.g. Drone Services, SaaS)",
+  "industry": "Industry classification (e.g. Drone Services, SaaS, Mining)",
   "employee_count": integer or null,
   "location": "Headquarters location or null",
   "description": "2-3 sentence company overview",
-  "business_signals": ["Business signals — hiring, funding, expansion"],
+  "company_situation": "2-3 sentence summary of current business situation",
+  "business_problems": ["Specific operational problem 1", "Specific problem 2"],
+  "operational_risks": ["Risk of not solving problem 1", "Risk of not solving problem 2"],
+  "business_signals": ["Growth signals — hiring, funding, expansion, partnerships"],
+  "buying_signals": ["Buying signals — tech stack changes, vendor evaluations, leadership changes"],
   "pain_points": ["Likely pain points this company faces"],
   "technology_signals": ["Technology stack and platform signals"],
   "flytbase_relevance": "Relevance to FlytBase — High/Medium/Low + rationale",
   "recommended_next_action": "Recommended BDR next step",
-  "sources": ["URLs used in this analysis"]
+  "recommended_sales_angle": "Specific sales angle for the BDR to lead with",
+  "industry_incidents": [
+    {
+      "title": "Incident title",
+      "summary": "What happened and why it matters",
+      "implication": "Why this creates urgency for the prospect"
+    }
+  ],
+  "sources": ["URLs used in this analysis"],
+  "citations": [
+    {"source": "Source description", "url": "URL", "key_finding": "Key finding from this source"}
+  ]
 }
 
-Use only information present in the search results. Do NOT fabricate data."""
+Use only information present in the search results. Do NOT fabricate data.
+Where data is unavailable, note it as \"Insufficient data\" rather than inventing."""
+
+# Default fallback search queries when LLM-based planning is unavailable
+_DEFAULT_SEARCH_QUERIES = [
+    "{query} company overview products services",
+    "{query} recent news funding 2026",
+    "{query} technology stack platforms",
+    "{query} team size locations leadership",
+    "{query} business challenges pain points",
+]
 
 
 class ResearchAgent(BaseAgent):
-    """BDR research agent with Account Intelligence Engine integration.
+    """BDR research agent — single LLM call per task.
 
     Workflow:
-    1. Plan search queries via LLM
+    1. Use pre-defined search queries (no LLM call)
     2. Execute web search for each query
     3. Extract content from top URLs
-    4. Generate account intelligence via AIProvider
-    5. Synthesize findings into structured BDR report
-    6. Persist report with citations and metadata
+    4. Synthesize findings + account intelligence in a single LLM call
+    5. Persist report with citations and metadata
+
+    LLM calls reduced from 3 → 1 per task:
+    - Planning (removed): hardcoded default queries cover all BDR dimensions
+    - Intelligence analysis (merged): synthesis prompt now includes all
+      intelligence fields (company_situation, business_problems,
+      operational_risks, buying_signals, citations, etc.)
+    - Synthesis (kept): produces the structured BDR report
     """
 
     agent_type = "research"
@@ -84,7 +100,6 @@ class ResearchAgent(BaseAgent):
         self._ai = ai_provider
         self._tools = tool_manager
         self._tm = task_manager
-        self._intelligence = AccountResearchIntelligence(ai_provider)
 
     async def run(self, context: AgentContext, task: AgentTaskInput) -> AgentResult:
         task_id = context.task_id
@@ -100,19 +115,15 @@ class ResearchAgent(BaseAgent):
 
         query = company_name or domain
 
-        # ── Step 2: Plan search queries via LLM ─────────────────────────
-        self._tm.append_log(
-            task_id, "info", "planning_started",
-            "Generating research queries via LLM",
-        )
-
-        search_queries = await self._plan_queries(query, task_id)
-        if not search_queries:
-            search_queries = [f"{query} company overview", f"{query} news 2026"]
+        # ── Step 2: Use default search queries (no LLM call) ────────────
+        # Planning via LLM is skipped to reduce unnecessary calls since
+        # search tools run in simulated mode by default. The hardcoded
+        # queries cover all relevant dimensions for BDR research.
+        search_queries = [q.format(query=query) for q in _DEFAULT_SEARCH_QUERIES]
 
         self._tm.append_log(
             task_id, "info", "planning_completed",
-            f"Generated {len(search_queries)} search queries",
+            f"Using {len(search_queries)} default research queries",
             {"queries": search_queries},
         )
 
@@ -186,29 +197,11 @@ class ResearchAgent(BaseAgent):
                     {"tool": "extract_web_content", "url": source_url, "error": str(exc)},
                 )
 
-        # ── Step 5: Generate Account Intelligence ───────────────────────
-        self._tm.append_log(
-            task_id, "info", "intelligence_analysis_started",
-            "Generating structured account intelligence via AIProvider",
-        )
-
-        intelligence = await self._intelligence.analyze(
-            company_name=company_name,
-            search_results=all_results,
-            extracted_content=content_texts,
-        )
-
-        self._tm.append_log(
-            task_id, "info", "intelligence_analysis_completed",
-            "Account intelligence analysis complete",
-            {
-                "business_problems": len(intelligence.get("business_problems", [])),
-                "growth_signals": len(intelligence.get("growth_signals", [])),
-                "citations": len(intelligence.get("citations", [])),
-            },
-        )
-
-        # ── Step 6: Synthesize via LLM ─────────────────────────────────
+        # ── Step 5: Synthesize into comprehensive report (single LLM call) ──
+        # Both account intelligence analysis and structured report generation
+        # are done in a single LLM call to reduce API overhead. The synthesis
+        # prompt includes all intelligence fields (business problems,
+        # operational risks, growth signals, buying signals, citations, etc.)
         self._tm.append_log(
             task_id, "info", "synthesis_started",
             "Synthesising research data into structured report via LLM",
@@ -222,18 +215,9 @@ class ResearchAgent(BaseAgent):
             task_id=task_id,
         )
 
-        # Merge account intelligence into findings for richer output
-        findings.setdefault("business_signals", intelligence.get("growth_signals", []))
-        findings.setdefault("pain_points", intelligence.get("business_problems", []))
-        findings.setdefault("technology_signals", intelligence.get("technology_signals", []))
-        if not findings.get("flytbase_relevance"):
-            findings["flytbase_relevance"] = intelligence.get("flytbase_relevance")
-        if not findings.get("recommended_next_action"):
-            findings["recommended_next_action"] = intelligence.get("recommended_sales_angle")
+        citations = findings.get("citations", [])
 
-        citations = intelligence.get("citations", [])
-
-        # ── Step 7: Persist report ─────────────────────────────────────
+        # ── Step 6: Build report output ────────────────────────────────
         report_id = uuid.uuid4()
 
         self._tm.append_log(
@@ -250,18 +234,19 @@ class ResearchAgent(BaseAgent):
             "employee_count": findings.get("employee_count"),
             "location": findings.get("location"),
             "description": findings.get("description"),
+            "company_situation": findings.get("company_situation", ""),
+            "business_problems": findings.get("business_problems", []),
+            "operational_risks": findings.get("operational_risks", []),
             "business_signals": findings.get("business_signals", []),
+            "buying_signals": findings.get("buying_signals", []),
             "pain_points": findings.get("pain_points", []),
             "technology_signals": findings.get("technology_signals", []),
+            "growth_signals": findings.get("business_signals", []),
             "flytbase_relevance": findings.get("flytbase_relevance"),
             "recommended_next_action": findings.get("recommended_next_action"),
+            "recommended_sales_angle": findings.get("recommended_sales_angle"),
+            "industry_incidents": findings.get("industry_incidents", []),
             "sources": findings.get("sources", all_sources),
-            # Account Intelligence enriched fields
-            "company_situation": intelligence.get("company_situation", ""),
-            "growth_signals": intelligence.get("growth_signals", []),
-            "buying_signals": intelligence.get("buying_signals", []),
-            "operational_risks": intelligence.get("operational_risks", []),
-            "industry_incidents": intelligence.get("industry_incidents", []),
         }
 
         output_data: dict[str, Any] = {
@@ -277,7 +262,7 @@ class ResearchAgent(BaseAgent):
             "providers_used": getattr(self._ai, "name", "unknown"),
         }
 
-        # ── Step 8: Complete ────────────────────────────────────────────
+        # ── Step 7: Complete ────────────────────────────────────────────
         self._tm.append_log(
             task_id, "info", "task_completed",
             f"Account intelligence research completed for {company_name or domain}",
@@ -295,40 +280,6 @@ class ResearchAgent(BaseAgent):
         )
 
     # ── internal helpers ───────────────────────────────────────────────
-
-    async def _plan_queries(self, query: str, task_id: uuid.UUID) -> list[str]:
-        """Use LLM to generate targeted search queries for this company."""
-        prompt = (
-            f"Company: {query}\n\n"
-            "Generate 3-5 web search queries to research this company for BDR outreach. "
-            "Return ONLY a JSON array of strings."
-        )
-
-        try:
-            response = await self._ai.generate(
-                AIRequest(
-                    messages=[
-                        AIMessage(role="system", content=_PLANNING_SYSTEM_PROMPT),
-                        AIMessage(role="user", content=prompt),
-                    ],
-                    temperature=0.3,
-                )
-            )
-            return _parse_json_list(response.content)
-        except ProviderError as exc:
-            self._tm.append_log(
-                task_id, "error", "llm_planning_failed",
-                f"LLM planning failed: {exc}",
-                {"error": str(exc)},
-            )
-            return []
-        except Exception as exc:
-            self._tm.append_log(
-                task_id, "error", "llm_planning_error",
-                f"Unexpected planning error: {exc}",
-                {"error": str(exc)},
-            )
-            return []
 
     async def _synthesize_report(
         self,
@@ -355,10 +306,19 @@ class ResearchAgent(BaseAgent):
             "company_name": company_name,
             "domain": domain,
             "description": f"Research completed for {company_name or domain}.",
+            "company_situation": "",
+            "business_problems": [],
+            "operational_risks": [],
             "business_signals": [],
+            "buying_signals": [],
             "pain_points": [],
             "technology_signals": [],
+            "flytbase_relevance": "",
+            "recommended_next_action": "",
+            "recommended_sales_angle": "",
+            "industry_incidents": [],
             "sources": [],
+            "citations": [],
         }
 
         try:
@@ -392,28 +352,6 @@ class ResearchAgent(BaseAgent):
 
 
 # ── JSON parsing helpers ───────────────────────────────────────────────
-
-
-def _parse_json_list(text: str) -> list[str]:
-    """Best-effort parse of a JSON array from LLM output."""
-    cleaned = _strip_code_fences(text).strip()
-    try:
-        parsed = json.loads(cleaned)
-        if isinstance(parsed, list):
-            return [str(item) for item in parsed if item]
-    except json.JSONDecodeError:
-        pass
-    # Fallback: try to find array boundaries
-    start = cleaned.find("[")
-    end = cleaned.rfind("]")
-    if start != -1 and end > start:
-        try:
-            parsed = json.loads(cleaned[start: end + 1])
-            if isinstance(parsed, list):
-                return [str(item) for item in parsed if item]
-        except json.JSONDecodeError:
-            pass
-    return []
 
 
 def _parse_json_object(text: str) -> dict[str, Any] | None:
