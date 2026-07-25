@@ -31,6 +31,10 @@ from app.core.contracts import (
 )
 from app.core.task_manager import TaskManager
 from app.intelligence.signal_collector import ResearchSignal, SignalCollector
+from app.intelligence.synthesis_normalize import (
+    evidence_based_extraction,
+    normalize_and_validate_findings,
+)
 from app.tools.tool_manager import ToolManager
 
 logger = logging.getLogger(__name__)
@@ -45,95 +49,98 @@ _EVIDENCE_SYNTHESIS_PROMPT = """\
 You are a senior BDR intelligence analyst for FlytBase (enterprise drone fleet
 automation and remote operations).
 
-You receive **collected research signals** from public web sources only
-(company sites, press releases, industry publications, IR/regulatory pages,
-safety reports, technology announcements). LinkedIn/social scrapes are excluded.
+You receive short **research signal cards** (title, summary, category, URL).
+They are already cleaned snippets — NOT full articles.
 
-Produce a complete, enterprise-grade BDR intelligence report for the company.
+Produce a complete, enterprise-grade BDR intelligence report.
 
 CRITICAL RULES:
 1. NEVER invent facts, dates, numbers, or URLs.
 2. Use ONLY the provided research signals (and optional inbound context).
-3. Every pain point and buying signal MUST include a source_url from signals.
-4. Every latest_news / recent_signals item MUST include a real url from signals.
-5. Do NOT return empty arrays when evidence exists — map signals into the
-   closest fields.
-6. If a field is unknown from evidence, use null or a short honest statement
-   such as "Not found in collected public evidence" — do not fabricate.
-7. Prefer themes relevant to FlytBase when present: automation, remote ops,
-   inspection, safety, site monitoring, digital transformation, drones.
+3. NEVER copy raw article text, Forbes-style narrative, or multi-source mashups.
+4. NEVER output markdown (no # headings, **, bullet dumps, or code fences).
+5. Keep every free-text field SHORT: ideally one or two sentences, under 220 chars.
+6. company_overview.description = clean company bio only (who they are / what they do).
+   Do NOT paste news article bodies into description.
+7. operational_pain_points = ONLY operational problems relevant to FlytBase:
+   manual inspections, safety exposure, remote monitoring gaps, inefficiency,
+   scaling ops, site visibility. Each must be {pain_point, evidence, source_url}.
+8. buying_signals = ONLY intent/investment signals: automation investment, AI
+   adoption, digital transformation, expansion, partnerships, tech deployment.
+   Each must be {signal, evidence, source_url}.
+9. Reject any pain/buying text that reads like a company overview or article.
+10. latest_news.category MUST be one of:
+    company_news | investment | automation_investment | technology_announcement |
+    expansion | partnership | funding | safety_incident | industry_article
+11. Every URL must come from the provided signals.
 
-Return ONLY valid JSON (no markdown, no commentary) matching this schema:
+Return ONLY valid JSON (no markdown, no commentary):
 {
   "company_name": "Full company name",
   "domain": "Primary domain if known",
-  "description": "2-4 sentence company overview from evidence",
-  "industry": "Industry classification or null",
-  "business_model": "How they make money / operate, from evidence, or null",
-  "major_operations": "Key operations / assets / lines of business, or null",
-  "geographic_presence": "HQ and key regions if evidenced, or null",
+  "description": "2 short clean sentences — company bio only",
+  "industry": "Industry or null",
+  "business_model": "One short sentence or null",
+  "major_operations": "One short sentence or null",
+  "geographic_presence": "HQ / key regions or null",
   "employee_count": null,
-  "location": "HQ location if evidenced, or null",
-  "company_situation": "2-3 sentences on current business situation",
+  "location": "HQ location or null",
+  "company_situation": "2 short sentences on current situation",
+  "company_overview": {
+    "description": "same clean bio",
+    "industry": "…",
+    "business_model": "…",
+    "major_operations": "…",
+    "geographic_presence": "…",
+    "size_location": "size and/or HQ if known"
+  },
   "latest_news": [
     {
-      "title": "Headline from a signal",
+      "title": "Headline",
       "url": "URL from signals",
-      "date": "Date if known else null",
-      "summary": "1-2 sentence summary",
+      "date": "Date or null",
+      "summary": "One short sentence",
       "category": "company_news"
     }
   ],
   "operational_pain_points": [
     {
-      "pain_point": "Specific operational problem",
-      "evidence": "Quote or paraphrase from a signal",
+      "pain_point": "Short operational problem",
+      "evidence": "Short supporting phrase from a signal",
       "source_url": "URL from signals"
     }
   ],
   "buying_signals": [
     {
-      "signal": "Specific buying / adoption / investment signal",
-      "evidence": "Quote or paraphrase from a signal",
+      "signal": "Short buying/intent signal",
+      "evidence": "Short supporting phrase",
       "source_url": "URL from signals"
-    }
-  ],
-  "business_signals": [
-    {
-      "signal": "Business/growth signal",
-      "category": "company_news|expansion|hiring|automation_investment|partnership|press_release",
-      "source_url": "URL from signals",
-      "summary": "Short summary",
-      "date": "Date or null"
     }
   ],
   "recent_signals": [
     {
       "title": "Signal title",
-      "url": "URL from signals",
-      "date": "Date or null",
+      "url": "URL",
+      "date": null,
       "summary": "Short summary",
-      "category": "category from evidence",
-      "source_type": "source type if known"
+      "category": "automation_investment",
+      "source_type": "public_web"
     }
   ],
-  "technology_signals": ["Tech / platform signals from evidence"],
-  "pain_points": ["Short pain labels derived from evidence"],
-  "why_now": "2-3 sentences on outreach urgency from evidence + inbound context",
-  "flytbase_relevance": "High/Medium/Low — explanation grounded in evidence",
-  "flytbase_fit": "Which FlytBase capabilities map to evidenced needs",
+  "technology_signals": ["Short tech labels"],
+  "pain_points": ["Short pain labels"],
+  "why_now": "2 short sentences",
+  "flytbase_relevance": "High/Medium/Low — short reason",
+  "flytbase_fit": "Short capability mapping",
   "recommended_next_action": "Concrete BDR next step",
-  "recommended_sales_angle": "Specific sales angle for the BDR",
+  "next_action": "Same as recommended_next_action",
+  "recommended_sales_angle": "Specific short sales angle",
   "confidence_score": 0,
   "sources": ["Unique source URLs used"],
-  "evidence": [
-    {"claim": "Specific claim", "source_url": "URL from signals"}
-  ]
+  "evidence": [{"claim": "Short claim", "source_url": "URL"}]
 }
 
-confidence_score is 0-100 based on evidence quality and coverage.
-Include up to 10 latest_news items and up to 15 recent_signals when evidence supports it.
-latest_news should prioritize company announcements, press, IR, industry and tech news.
+confidence_score is 0-100. Prefer fewer high-quality items over dumping signals.
 """
 
 
@@ -327,12 +334,14 @@ class ResearchAgent(BaseAgent):
             "employee_count": findings.get("employee_count"),
             "location": findings.get("location"),
             "description": findings.get("description"),
-            "company_overview": {
+            "company_overview": findings.get("company_overview")
+            or {
                 "description": findings.get("description"),
                 "industry": findings.get("industry"),
                 "business_model": findings.get("business_model"),
                 "major_operations": findings.get("major_operations"),
                 "geographic_presence": findings.get("geographic_presence"),
+                "size_location": findings.get("location"),
                 "employee_count": findings.get("employee_count"),
                 "location": findings.get("location"),
             },
@@ -429,8 +438,10 @@ class ResearchAgent(BaseAgent):
             f"=== Research Signals (ONLY evidence you may use) ===\n"
             f"{signals_text}\n"
             "Synthesise a complete BDR intelligence report as specified JSON.\n"
-            "Include company overview fields, latest_news, operational_pain_points, "
-            "buying_signals, and recent_signals whenever evidence exists.\n"
+            "Write CLEAN short fields only — no markdown, no article dumps, no "
+            "merging multiple articles into description.\n"
+            "Pain points must be operational (inspection/safety/monitoring/scale).\n"
+            "Buying signals must be intent/investment (automation/AI/expansion).\n"
             "Do not invent facts. Return ONLY valid JSON."
         )
 
@@ -462,8 +473,15 @@ class ResearchAgent(BaseAgent):
                     getattr(self._ai, "name", "unknown"),
                     company_name,
                 )
-                return _merge_synthesis_with_evidence(
+                merged = _merge_synthesis_with_evidence(
                     parsed,
+                    company_name=company_name,
+                    domain=domain,
+                    collected_signals=collected_signals,
+                    inbound_context=inbound_context,
+                )
+                return normalize_and_validate_findings(
+                    merged,
                     company_name=company_name,
                     domain=domain,
                     collected_signals=collected_signals,
@@ -514,43 +532,6 @@ class ResearchAgent(BaseAgent):
 # ── synthesis helpers ──────────────────────────────────────────────────
 
 
-_PAIN_CATEGORIES = frozenset(
-    {
-        "safety_incident",
-        "industry_article",
-        "company_news",
-        "technology_announcement",
-        "company_overview",
-    }
-)
-_BUYING_CATEGORIES = frozenset(
-    {
-        "expansion",
-        "hiring",
-        "partnership",
-        "automation_investment",
-        "technology_announcement",
-        "tech_announcement",
-        "funding",
-        "technology",
-        "press_release",
-        "company_news",
-    }
-)
-_NEWS_CATEGORIES = frozenset(
-    {
-        "company_news",
-        "press_release",
-        "industry_article",
-        "technology_announcement",
-        "company_overview",
-        "expansion",
-        "partnership",
-        "automation_investment",
-    }
-)
-
-
 def _build_fallback(
     *,
     company_name: str,
@@ -558,234 +539,14 @@ def _build_fallback(
     collected_signals: list[ResearchSignal],
     inbound_context: str = "",
 ) -> dict[str, Any]:
-    """Evidence-preserving fallback when LLM synthesis is unavailable."""
-    signal_dicts = [
-        {
-            "title": s.title,
-            "url": s.url,
-            "source_url": s.url,
-            "date": s.date,
-            "summary": s.summary,
-            "category": s.category,
-            "source_type": s.source_type,
-        }
-        for s in collected_signals
-    ]
-
-    derived_pain = _derive_pain_points(collected_signals)
-    derived_buying = _derive_buying_signals(collected_signals)
-    latest_news = _derive_latest_news(collected_signals)
-
-    # Never leave empty arrays when we have evidence
-    if not derived_pain and collected_signals:
-        for s in collected_signals[:5]:
-            if s.url:
-                derived_pain.append(
-                    {
-                        "pain_point": s.summary if len(s.summary) > 20 else s.title,
-                        "evidence": s.summary or s.title,
-                        "source_url": s.url,
-                    }
-                )
-    if not derived_buying and collected_signals:
-        for s in collected_signals[:5]:
-            if s.url and s.category in _BUYING_CATEGORIES:
-                derived_buying.append(
-                    {
-                        "signal": s.summary if len(s.summary) > 15 else s.title,
-                        "evidence": s.summary or s.title,
-                        "source_url": s.url,
-                    }
-                )
-        if not derived_buying:
-            for s in collected_signals[:3]:
-                if s.url:
-                    derived_buying.append(
-                        {
-                            "signal": s.title,
-                            "evidence": s.summary or s.title,
-                            "source_url": s.url,
-                        }
-                    )
-
-    sources = [s.url for s in collected_signals if s.url]
-    evidence = [
-        {"claim": s.summary or s.title, "source_url": s.url}
-        for s in collected_signals
-        if s.url
-    ]
-
-    # Build a richer description from overview / news signal snippets
-    overview_bits = [
-        s.summary or s.title
-        for s in collected_signals
-        if s.category in ("company_overview", "company_news", "press_release") and s.summary
-    ][:3]
-    if overview_bits:
-        description = " ".join(overview_bits)[:600]
-    else:
-        description = (
-            f"Research completed for {company_name or domain} using "
-            f"{len(collected_signals)} public evidence signals. "
-            "AI synthesis unavailable; collected signals preserved."
-        )
-
-    why_now = (
-        f"Public signals indicate automation, safety, expansion, or technology "
-        f"activity relevant to {company_name or domain}."
+    """Evidence-preserving structured fallback (clean BDR fields, no dumps)."""
+    return evidence_based_extraction(
+        company_name=company_name,
+        domain=domain,
+        collected_signals=collected_signals,
+        inbound_context=inbound_context,
+        base={},
     )
-    if inbound_context.strip():
-        why_now = (
-            f"Inbound interest plus {len(collected_signals)} public signals suggest "
-            f"timely outreach for {company_name or domain} around automation and "
-            "operational improvement themes."
-        )
-
-    return {
-        "company_name": company_name,
-        "domain": domain,
-        "description": description,
-        "industry": None,
-        "business_model": None,
-        "major_operations": None,
-        "geographic_presence": None,
-        "employee_count": None,
-        "location": None,
-        "company_situation": (
-            f"{company_name or domain} shows recent public activity across "
-            f"{len(collected_signals)} signals from company, industry, and "
-            "regulatory sources."
-        ),
-        "latest_news": latest_news,
-        "operational_pain_points": derived_pain,
-        "buying_signals": derived_buying,
-        "business_signals": [
-            {
-                "signal": s.summary or s.title,
-                "category": s.category,
-                "source_url": s.url,
-                "url": s.url,
-                "summary": s.summary or "",
-                "date": s.date,
-                "source_type": s.source_type,
-            }
-            for s in collected_signals
-            if s.url
-        ],
-        "pain_points": [p["pain_point"] for p in derived_pain][:5],
-        "technology_signals": [
-            s.title
-            for s in collected_signals
-            if s.category in (
-                "technology",
-                "technology_announcement",
-                "tech_announcement",
-                "automation_investment",
-            )
-        ],
-        "why_now": why_now,
-        "flytbase_relevance": (
-            "Review preserved public signals for drone automation and remote "
-            "operations fit."
-        ),
-        "flytbase_fit": (
-            "Autonomous inspection, remote operations, and fleet orchestration "
-            "when signals mention monitoring, safety, or automation."
-        ),
-        "recommended_next_action": "Review research signals and qualify based on evidence.",
-        "next_action": "Review research signals and qualify based on evidence.",
-        "recommended_sales_angle": (
-            "Lead with operational intelligence grounded in recent public signals."
-        ),
-        "confidence_score": min(
-            max(len(collected_signals) * 4, 20) if collected_signals else 0,
-            70,
-        ),
-        "recent_signals": signal_dicts,
-        "sources": sources,
-        "evidence": evidence,
-    }
-
-
-def _derive_latest_news(signals: list[ResearchSignal]) -> list[dict[str, Any]]:
-    out: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    for s in signals:
-        if not s.url or s.category not in _NEWS_CATEGORIES:
-            continue
-        key = s.url.lower().rstrip("/")
-        if key in seen:
-            continue
-        seen.add(key)
-        if s.category in ("company_news", "press_release"):
-            news_cat = s.category
-        else:
-            news_cat = "company_news"
-        out.append(
-            {
-                "title": s.title,
-                "url": s.url,
-                "date": s.date,
-                "summary": s.summary or s.title,
-                "category": news_cat,
-            }
-        )
-        if len(out) >= 10:
-            break
-    if not out:
-        for s in signals[:8]:
-            if not s.url:
-                continue
-            out.append(
-                {
-                    "title": s.title,
-                    "url": s.url,
-                    "date": s.date,
-                    "summary": s.summary or s.title,
-                    "category": "company_news",
-                }
-            )
-    return out
-
-
-def _derive_pain_points(signals: list[ResearchSignal]) -> list[dict[str, str]]:
-    out: list[dict[str, str]] = []
-    seen: set[str] = set()
-    for s in signals:
-        if not s.url or s.category not in _PAIN_CATEGORIES:
-            continue
-        key = (s.summary or s.title)[:120]
-        if key in seen:
-            continue
-        seen.add(key)
-        out.append(
-            {
-                "pain_point": s.summary if len(s.summary) > 20 else s.title,
-                "evidence": s.summary or s.title,
-                "source_url": s.url,
-            }
-        )
-    return out
-
-
-def _derive_buying_signals(signals: list[ResearchSignal]) -> list[dict[str, str]]:
-    out: list[dict[str, str]] = []
-    seen: set[str] = set()
-    for s in signals:
-        if not s.url or s.category not in _BUYING_CATEGORIES:
-            continue
-        key = (s.summary or s.title)[:120]
-        if key in seen:
-            continue
-        seen.add(key)
-        out.append(
-            {
-                "signal": s.summary if len(s.summary) > 15 else s.title,
-                "evidence": s.summary or s.title,
-                "source_url": s.url,
-            }
-        )
-    return out
 
 
 def _merge_synthesis_with_evidence(
