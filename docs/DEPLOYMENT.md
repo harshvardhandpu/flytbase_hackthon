@@ -266,6 +266,27 @@ Open the following URLs in a browser and verify they render correctly:
 | API returns 500 | Missing AI credentials | Set `AI_PROVIDER=freemodel` or leave unset for fallback |
 | Slow first load | Container cold start | Railway containers are always-on with paid credits |
 | Console errors | Tailwind CDN warning | Non-blocking — Tailwind CDN dev warning is harmless |
+| Mixed Content / `timeAgo` ReferenceError | `url_for()` generates `http://` behind HTTPS proxy | Use direct `/static/` paths instead of `url_for('static', ...)` — see note below |
+
+### Static Assets Behind HTTPS Proxy
+
+**Issue:** `{{ url_for('static', path='...') }}` in Jinja2 templates generates `http://` URLs when FastAPI sits behind an HTTPS-terminating proxy (Railway, Render, Nginx, etc.). The browser blocks these as **Mixed Content**, causing CSS, JavaScript, and utility functions (`timeAgo`, `animateValue`) to silently fail.
+
+**Fix:** Use direct `/static/` paths instead of `url_for` for static assets:
+
+```html
+<!-- ❌ Broken behind HTTPS proxy -->
+<link rel="stylesheet" href="{{ url_for('static', path='css/app.css') }}">
+<script src="{{ url_for('static', path='js/app.js') }}"></script>
+
+<!-- ✅ Protocol-relative — works on HTTP and HTTPS -->
+<link rel="stylesheet" href="/static/css/app.css">
+<script src="/static/js/app.js"></script>
+```
+
+This works because `app.mount('/static', StaticFiles(...))` serves files at the `/static/` path. The direct path inherits the page's protocol automatically.
+
+**How to detect:** Open browser DevTools Console. If you see `Mixed Content` warnings or `ReferenceError: timeAgo is not defined`, check if static assets are being loaded over `http://`.
 
 ### Viewing Logs
 
