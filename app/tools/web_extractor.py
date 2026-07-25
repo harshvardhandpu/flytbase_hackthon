@@ -32,6 +32,80 @@ _MOCK_PAGES: dict[str, dict[str, str]] = {
             "construction, agriculture, energy, and public safety sectors."
         ),
     },
+    "riotinto.com": {
+        "title": "Rio Tinto — Global Mining Leader",
+        "text": (
+            "Rio Tinto is one of the world's largest mining companies with operations "
+            "across 35 countries. Our core portfolio includes iron ore, copper, aluminum, "
+            "and critical minerals for the energy transition. We operate some of the "
+            "largest open-pit and underground mines globally.\n\n"
+            "Autonomous Operations: Rio Tinto operates the world's largest fleet of "
+            "autonomous haul trucks across our Pilbara iron ore operations. Our "
+            "Operations Centre in Perth remotely manages 15 mine sites, controlling "
+            "autonomous trucks, trains, and drills.\n\n"
+            "Digital Transformation: We are investing in AI-powered predictive maintenance, "
+            "drone-based site inspection, real-time operational analytics, and "
+            "remote operations technology. Our 'Mine of the Future' program aims to "
+            "achieve fully autonomous mining operations.\n\n"
+            "Drone Fleet: Rio Tinto uses drone fleets for stockpile measurement, "
+            "equipment inspection, blast monitoring, safety surveillance, and site "
+            "surveying. We are exploring expanded drone automation for remote "
+            "operations and inspection workflows."
+        ),
+    },
+    "mining-technology.com": {
+        "title": "Mining Technology — Autonomous Mining News",
+        "text": (
+            "The mining industry is undergoing a profound transformation driven by "
+            "autonomous technologies. Major mining companies are investing heavily in "
+            "automation to improve safety, reduce costs, and address labor shortages.\n\n"
+            "Autonomous Haulage: Rio Tinto, BHP, and Vale operate large fleets of "
+            "autonomous haul trucks that have demonstrated 20-30 percent productivity "
+            "improvements compared to manned operations. These trucks are controlled "
+            "remotely from centralized operations centers.\n\n"
+            "Drone Inspection: Drones are increasingly deployed for mine site inspection, "
+            "replacing manual inspection teams. Applications include stockpile "
+            "measurement, equipment condition monitoring, safety surveillance, and "
+            "blast monitoring. Automation of drone workflows is the next frontier.\n\n"
+            "Remote Operations: Centralized remote operations centers allow mining "
+            "companies to manage multiple sites from a single location, reducing "
+            "on-site headcount while improving operational visibility and control."
+        ),
+    },
+    "dronelife.com": {
+        "title": "DroneLife — Drone News in Mining",
+        "text": (
+            "Drone adoption in mining is accelerating as companies seek to improve "
+            "safety and efficiency. Rio Tinto has deployed drone fleets across multiple "
+            "mine sites for automated stockpile measurement, equipment inspection, "
+            "and safety monitoring. The program has reduced manual inspection time "
+            "by 70 percent while improving data accuracy and worker safety.\n\n"
+            "Key drone applications in mining include: stockpile volume measurement, "
+            "conveyor belt inspection, tailings dam monitoring, blast zone assessment, "
+            "and site security surveillance. Fleet management platforms are needed "
+            "to coordinate multiple drones across distributed mine sites."
+        ),
+    },
+    "mining-recruitment.com": {
+        "title": "Mining Recruitment — Automation Jobs",
+        "text": (
+            "Rio Tinto is actively recruiting automation engineers, robotics specialists, "
+            "fleet management system engineers, and remote operations specialists. "
+            "The company is expanding its autonomous mining team to support the "
+            "deployment of autonomous haulage systems, drone inspection programs, "
+            "and remote operations centers across its global mining operations."
+        ),
+    },
+    "mining.com": {
+        "title": "Mining.com — Automation Talent Shortage",
+        "text": (
+            "The mining industry is facing a critical shortage of automation and "
+            "robotics talent as companies like Rio Tinto, BHP, and Vale accelerate "
+            "their autonomous mining programs. Demand for engineers with experience "
+            "in fleet management, remote operations, and drone automation far "
+            "outpaces supply, creating urgency for technology solutions."
+        ),
+    },
 }
 
 _DEFAULT_PAGE: dict[str, str] = {
