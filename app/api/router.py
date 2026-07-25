@@ -1224,7 +1224,8 @@ async def simulate_inbound_email(
             report_id = str(research_report.id)
 
             signal_count = len(findings.get("recent_signals", []))
-            evidence_count = len(findings.get("evidence", []))
+            # evidence is stored at top-level output_data, not in findings
+            evidence_count = len(research_result.output_data.get("evidence", []))
             logger.info(
                 "[WORKFLOW] research completed signals=%s evidence=%s company=%s",
                 signal_count, evidence_count, effective_name,
